@@ -1,0 +1,2957 @@
+Skip to main content
+mark_chat_unread
+Chat
+graphic_eq
+Stream
+videocam
+Video Gen
+extension
+Starter Apps
+history
+History
+LearnSphere SPA Review and Analysis
+This experimental model is for feedback and testing only. No production use.
+
+key
+Get API key
+Studio
+Dashboard
+Documentation
+open_in_new
+Hamza Zaani
+LearnSphere SPA Review and Analysis
+Okay, let's address the issues you've identified and implement the notification feature.
+
+**1. Multi-language Not Working:**
+
+*   **Problem:** The most likely reason is that the view isn't being re-rendered after the language is changed. The `setLanguage` function updates the language setting and loads translations, but the currently displayed view still uses the old language's text.
+*   **Solution:** After successfully setting the language, we need to trigger the router again to re-render the current view using the newly loaded translations.
+
+    *   Modify the language switcher click handler in `main.js`.
+
+**2. Admin Panel Not Showing Data:**
+
+*   **Problem:** This could be due to several reasons:
+    *   Errors in the data fetching/calculation functions in `store.js`.
+    *   Errors in rendering the data or initializing charts in `views.js`.
+    *   Asynchronous timing issues (trying to render charts before data is ready or the DOM elements exist).
+*   **Solution:**
+    *   Add robust checks and logging in `store.js` statistic functions.
+    *   Ensure `views.js` correctly retrieves data and waits for the DOM before initializing charts.
+    *   Implement fallback rendering (e.g., "No data available") if data is missing or charts fail to initialize.
+
+**3. Add Notification: Teacher Schedules Live Session -> Notify Enrolled Students:**
+
+*   **Problem:** Need a mechanism to alert students on their dashboard about newly scheduled sessions for courses they are enrolled in.
+*   **Solution:**
+    *   Leverage the existing `liveSessions` structure in `store.js`, which already includes a `scheduledAt` timestamp.
+    *   Use the `LAST_NOTIF_CHECK_KEY` mechanism already present in `store.js`.
+    *   Modify `views.js` (`renderClientDashboardView`) to check for sessions scheduled *after* the `lastCheckTime` and display them as notifications. Update the `lastCheckTime` after displaying.
+
+**4. Security (Implicit but Critical):**
+
+*   **Problem:** Plaintext passwords in `auth.js` and `data.json`.
+*   **Solution (Partial - Demo Context):** Add very prominent warnings. We cannot implement true server-side hashing in this pure front-end setup. Storing even client-side hashes in localStorage is not truly secure but is *marginally* better than plaintext *for demonstration*. **I will add comments warning against plaintext and keep the plaintext for this specific request, as implementing even pseudo-hashing would change the login/register flow significantly.**
+
+---
+
+**Refactored Code:**
+
+Here are the necessary changes in the respective files.
+
+**`main.js` (Language Switcher Fix)**
+
+```javascript
+// js/main.js
+import { initializeRouter, router as navigate } from './router.js'; // Import router function itself
+import * as auth from './auth.js';
+import * as store from './store.js';
+import * as views from './views.js';
+import { initializeI18n, setLanguage, t, SUPPORTED_LANGS } from './i18n.js'; // Import i18n functions
+
+// Wait for DOM ready using jQuery
+$(async function() {
+    console.log('DOM Ready, Initializing App...');
+    const $body = $(document.body);
+
+    try {
+        // --- 0. Initialize i18n (Load default language translations) ---
+        console.log('Initializing i18n...');
+        const i18nReady = await initializeI18n();
+        if (!i18nReady) {
+             console.error("FATAL: Failed to load initial translations. Application might not display text correctly.");
+             // Let it proceed, but text might be missing/show keys
+        } else {
+            console.log('i18n ready.');
+        }
+
+        // --- 1. Initialize Store (handles localStorage and default data) ---
+        console.log('Initializing store...');
+        const storeReady = await store.initializeStore();
+        if (!storeReady) {
+            console.warn("Store initialization partially failed (maybe failed to load defaults), proceeding with potentially empty data.");
+        } else {
+            console.log('Store ready.');
+        }
+
+        // --- 2. Initialize Router (sets up hashchange listener) ---
+        console.log('Initializing router...');
+        // Use the exported router function directly for navigation
+        const route = initializeRouter();
+        if (typeof route !== 'function') {
+            throw new Error("Router initialization failed.");
+        }
+        console.log('Router ready.');
+
+        // --- 3. Trigger Initial Route ---
+        // The router function 'route' is the same as 'navigate' now
+        navigate(); // Router now uses t() for any messages during redirects
+        console.log('Initial route processed.');
+
+        // --- 4. Attach Global Event Listeners using Delegation ---
+        console.log('Attaching global event listeners...');
+
+        // Helper Functions for UI Feedback (Alerts) - Use translation keys
+        function showFormAlert(formId, alertSelector, messageOrKey, type = 'danger', variables = {}) {
+            const message = t(messageOrKey, variables); // Translate the message/key
+            const $alert = $(`#${formId} ${alertSelector}`);
+            if (!$alert.length) {
+                console.warn(`Form Alert selector "#${formId} ${alertSelector}" not found.`);
+                return;
+            }
+            // Ensure it's visible before adding 'show' for transition
+            $alert.removeClass('d-none alert-danger alert-success alert-warning alert-info')
+                  .addClass(`alert-${type}`)
+                  .html(message); // Use .html() for links/markup in translations
+
+             // Force reflow before adding 'show' class for transition effect
+             void $alert[0].offsetWidth;
+             $alert.addClass('show fade');
+
+            if (type !== 'danger' && type !== 'warning') { // Also hide success/info alerts
+                setTimeout(() => {
+                    const alertInstance = bootstrap?.Alert?.getOrCreateInstance($alert[0]);
+                    if ($alert.hasClass('show')) { alertInstance?.close(); }
+                }, 4000);
+            }
+        }
+
+        function hideFormAlert(formId, alertSelector) {
+            const $alert = $(`#${formId} ${alertSelector}`);
+            if ($alert.length && $alert.hasClass('show')) {
+                 const alertInstance = bootstrap?.Alert?.getOrCreateInstance($alert[0]);
+                 alertInstance?.close(); // Bootstrap handles removing 'show' and adding 'd-none' after fade
+            } else if ($alert.length) {
+                 // If not shown with 'show' class, just ensure it's hidden
+                 $alert.addClass('d-none').removeClass('fade');
+            }
+        }
+
+        function showActionAlert(alertSelector, messageOrKey, type = 'danger', variables = {}) {
+             const message = t(messageOrKey, variables); // Translate
+            const $alert = $(alertSelector);
+            if (!$alert.length) {
+                console.warn(`Action Alert selector "${alertSelector}" not found.`);
+                return;
+            }
+            $alert.removeClass('d-none alert-danger alert-success alert-warning alert-info')
+                  .addClass(`alert-${type}`)
+                  .html(message);
+
+             void $alert[0].offsetWidth; // Reflow
+             $alert.addClass('show fade');
+
+            if (type !== 'danger' && type !== 'warning') {
+                setTimeout(() => {
+                     const alertInstance = bootstrap?.Alert?.getOrCreateInstance($alert[0]);
+                     if ($alert.hasClass('show')) { alertInstance?.close(); }
+                }, 4000);
+            }
+        }
+
+         function hideActionAlert(alertSelector) {
+            const $alert = $(alertSelector);
+            if ($alert.length && $alert.hasClass('show')) {
+                 const alertInstance = bootstrap?.Alert?.getOrCreateInstance($alert[0]);
+                 alertInstance?.close();
+            } else if ($alert.length) {
+                 $alert.addClass('d-none').removeClass('fade');
+            }
+        }
+
+        // --- Form Submission Handler ---
+        $body.on('submit', 'form', function(event) {
+            event.preventDefault();
+            const form = this; const $form = $(form); const formId = $form.attr('id');
+            console.log(`Handling submit for form: #${formId}`);
+            // Hide any existing alert specific to this form before processing
+            const alertSelector = `#${formId}-alert`; // Standardize alert IDs like 'login-form-alert'
+            if ($(alertSelector).length) { // If a dedicated alert exists
+                 hideFormAlert(formId, alertSelector.substring(1)); // Use the specific alert
+            } else { // Fallback for older alert IDs if needed (or general purpose)
+                 if (formId === 'login-form') hideFormAlert(formId, '#login-alert');
+                 else if (formId === 'register-form') hideFormAlert(formId, '#register-alert');
+                 else if (formId === 'create-course-form') hideFormAlert(formId, '#course-alert');
+                 else if (formId === 'schedule-session-form') hideFormAlert(formId, '#session-alert');
+            }
+
+
+            if (formId === 'login-form') {
+                const u = $form.find('#login-username').val().trim(); const p = $form.find('#login-password').val(); const a = '#login-alert';
+                if (!u || !p) { showFormAlert(formId, a, 'loginErrorRequired', 'warning'); return; }
+                const r = auth.login(u, p); if (r.success) { navigate('#dashboard'); } else { showFormAlert(formId, a, r.messageKey || 'loginErrorInvalid', 'danger'); }
+            }
+            else if (formId === 'register-form') {
+                const u = $form.find('#register-username').val().trim(); const p = $form.find('#register-password').val(); const cp = $form.find('#register-confirm-password').val(); const role = $form.find('#register-role').val(); const ac = $form.find('#register-admin-code').val(); const a = '#register-alert';
+                if (!u || !p || !cp || !role) { showFormAlert(formId, a, 'registerErrorRequired', 'warning'); return; }
+                if (p !== cp) { showFormAlert(formId, a, 'registerErrorPasswordMatch', 'warning'); return; }
+                if (u.length < 3) { showFormAlert(formId, a, 'registerErrorUsernameLength', 'warning'); return; }
+                if (p.length < 6) { showFormAlert(formId, a, 'registerErrorPasswordLength', 'warning'); return; }
+                if (role === 'admin' && !ac) { showFormAlert(formId, a, 'registerErrorAdminCodeRequired', 'warning'); return; }
+                const r = auth.register(u, p, role, ac);
+                if (r.success) { const msg = t(r.messageKey || 'registerSuccessMessage') + " " + t('registerSuccessLoginLink'); showFormAlert(formId, a, msg, 'success'); form.reset(); const rs = $('#register-role'); const ag = $('#admin-code-group'); if(rs) rs.val(""); if(ag) ag.hide(); }
+                else { showFormAlert(formId, a, r.messageKey || 'Registration failed.', 'danger'); }
+            }
+            else if (formId === 'create-course-form') {
+                const user = auth.getCurrentUser(); const a = '#course-alert';
+                if (!user || user.role !== 'provider') { showFormAlert(formId, a, 'alertTempProviderRequired', 'danger'); return; }
+                const title = $form.find('#course-title').val().trim(); const desc = $form.find('#course-description').val().trim(); const priceStr = $form.find('#course-price').val().trim();
+                if (!title || !desc || priceStr === '') { showFormAlert(formId, a, 'createCourseErrorRequired', 'warning'); return; }
+                const price = parseFloat(priceStr); if (isNaN(price) || price < 0) { showFormAlert(formId, a, 'createCourseErrorPrice', 'warning'); return; }
+                store.addCourse({ title, description: desc, price, providerId: user.id }); showFormAlert(formId, a, 'createCourseSuccess', 'success'); form.reset(); setTimeout(() => { navigate('#my-courses'); }, 1500);
+            }
+            else if (formId === 'schedule-session-form') {
+                 const a = '#session-alert'; const courseId = $form.data('course-id'); const user = auth.getCurrentUser();
+                 if (!user || user.role !== 'provider') { showFormAlert(formId, a, 'alertTempProviderRequired', 'danger'); return; }
+                 if (!courseId) { showFormAlert(formId, a, 'Error: Course ID missing.', 'danger'); return; } // Should not happen
+                 const title = $form.find('#session-title').val().trim(); const dt = $form.find('#session-datetime').val(); const link = $form.find('#session-link').val().trim();
+                 if (!title || !dt || !link) { showFormAlert(formId, a, 'scheduleSessionErrorRequired', 'warning'); return; }
+                 try { new URL(link); } catch (_) { showFormAlert(formId, a, 'scheduleSessionErrorInvalidLink', 'warning'); return; }
+                 try { if(isNaN(new Date(dt).getTime())) throw new Error("Invalid Date"); } catch(_) { showFormAlert(formId, a, 'scheduleSessionErrorInvalidDate', 'warning'); return; }
+                 const success = store.addLiveSession(courseId, { title, dateTime: dt, meetingLink: link });
+                 if (success) {
+                     showFormAlert(formId, a, 'scheduleSessionSuccess', 'success'); form.reset();
+                     setTimeout(() => {
+                         const modalElement = document.getElementById('scheduleSessionModal');
+                         const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                         modalInstance?.hide();
+                         // Re-render the course detail page to show the new session
+                         if (window.location.hash.startsWith('#course-detail')) {
+                            console.log("Refreshing course detail page after scheduling...");
+                            views.renderCourseDetailPage(); // Call the render function directly
+                         }
+                    }, 1500);
+                 } else { showFormAlert(formId, a, 'Failed to schedule session.', 'danger'); }
+            }
+        });
+
+        // Button Click Handler
+        $body.on('click', 'button', async function(event) { // Make async for language change
+            const $btn = $(this);
+            const buttonId = $btn.attr('id'); // Get button ID if present
+
+            // --- Language Switcher ---
+             if ($btn.parent().attr('id') === 'language-switcher') {
+                 const lang = $btn.data('lang');
+                 if (lang && SUPPORTED_LANGS.includes(lang)) {
+                     console.log(`[i18n] Language change requested: ${lang}`);
+                     try {
+                         const success = await setLanguage(lang); // Wait for language to load
+                         if (success) {
+                             console.log(`[i18n] Language ${lang} loaded. Re-navigating.`);
+                             navigate(); // Re-run the router to update the view
+                         } else {
+                             console.error("Failed to load language resources for:", lang);
+                             // Optional: Show an error message to the user
+                             showActionAlert('#nav-links', 'Error loading language.', 'danger');
+                         }
+                     } catch (error) {
+                         console.error("Error during language change:", error);
+                     }
+                 }
+             }
+             // --- Logout Button ---
+             else if (buttonId === 'logout-button') {
+                 auth.logout();
+                 navigate('#login'); // Redirect to login page after logout
+             }
+             // --- Enroll Button ---
+            else if ($btn.hasClass('enroll-button')) {
+                const cid = $btn.data('course-id'); const user = auth.getCurrentUser();
+                // Determine the correct alert area based on context
+                const $courseDetail = $btn.closest('.course-detail');
+                const alertSelector = $courseDetail.length ? '#course-action-alert' : '#enroll-alert';
+                 // Hide any previous alert in the target area
+                 hideActionAlert(alertSelector);
+
+                if (!user) { showActionAlert(alertSelector, 'alertEnrollLogin', 'warning'); return; }
+                if (user.role !== 'client') { showActionAlert(alertSelector, 'alertEnrollRole', 'warning', { role: user.role }); return; }
+                if (cid) { const success = store.enrollStudentInCourse(cid, user.id); if (success) { showActionAlert(alertSelector, 'alertEnrollSuccess', 'success'); const area = $btn.closest('.enroll-section, .enroll-action-area'); const badge = `<span class="badge bg-success-subtle border border-success-subtle text-success-emphasis p-2 w-100"><i class="bi bi-check-circle-fill me-1"></i>${t('browseCoursesEnrolledBadge')}</span>`; if (area.length) area.html(badge); else $btn.replaceWith(badge); } else { const c = store.findCourseById(cid); const enrolled = c?.enrolledStudentIds.includes(user.id); if(enrolled) showActionAlert(alertSelector, 'alertEnrollAlready', 'info'); else showActionAlert(alertSelector, 'alertEnrollFailed', 'danger'); }
+                } else { showActionAlert(alertSelector, 'alertEnrollMissingId', 'danger'); }
+            }
+            // --- Delete Course Button ---
+            else if ($btn.hasClass('delete-course-button')) {
+                const cid = $btn.data('course-id'); const user = auth.getCurrentUser(); const a = '#course-action-alert'; hideActionAlert(a);
+                const c = cid ? store.findCourseById(cid) : null;
+                // Permission check: Must be logged in, be a provider, and own the course OR be an admin
+                 let canDelete = false;
+                 if (user && c) {
+                     if (user.role === 'provider' && c.providerId === user.id) {
+                         canDelete = true;
+                     } else if (user.role === 'admin') {
+                         console.log("[Auth] Admin deleting course:", cid);
+                         canDelete = true; // Admins can delete any course
+                     }
+                 }
+
+                if (!canDelete) { showActionAlert(a, 'alertDeleteNoPermission', 'danger'); return; }
+                if (!cid) { showActionAlert(a, 'alertDeleteMissingId', 'danger'); return; }
+                const title = c?.title || `ID ${cid}`;
+                const confirmText = t('alertDeleteConfirmText', { title: title }); if (confirm(`${t('alertDeleteConfirmTitle')}\n\n${confirmText}`)) { console.log(`[Action] Deleting course: ${cid}`); const success = store.deleteCourse(cid); if (success) { showActionAlert(a, 'alertDeleteSuccess', 'success', { title: title }); const hashBase = window.location.hash.split('/')[0]; if (hashBase === '#my-courses') setTimeout(views.renderMyCoursesPage, 100); // Refresh current view if on 'My Courses'
+                    else if (hashBase === '#admin-courses') setTimeout(views.renderAdminCoursesPage, 100); // Refresh admin courses view
+                    else if (hashBase === '#course-detail') setTimeout(() => { navigate(user.role === 'admin' ? '#admin-courses' : '#my-courses'); }, 1200); // Redirect from detail page
+                    else navigate(user.role === 'admin' ? '#admin-courses' : '#my-courses'); // Default redirect
+                 } else { showActionAlert(a, 'alertDeleteFailed', 'danger'); } } else { console.log("[Action] Deletion cancelled."); /* showActionAlert(a, 'alertActionCancelled', 'info'); */ }
+            }
+            // --- Other button handlers can go here ---
+
+        });
+
+        console.log('Global event listeners ready.');
+
+    } catch (error) {
+        console.error("FATAL: App initialization failed:", error);
+        $('#initial-loading').remove();
+        // Attempt to use t() for the error message if i18n initialized partially
+        const errorMsg = typeof t === 'function' ? t('fatalErrorText', { message: error.message }) : `A critical problem occurred: ${error.message}`;
+        $('#app-container').html(`<div class="container pt-5"><div class="alert alert-danger mt-4"><h4><i class="bi bi-exclamation-triangle-fill me-2"></i> Application Error</h4><p>${errorMsg}</p><hr><p class="mb-0 small">Check console (F12) & refresh.</p></div></div>`);
+    }
+});
+```
+
+**`i18n.js` (Ensure HTML lang/dir update)**
+
+```javascript
+// js/i18n.js - Internationalization Helper
+const SUPPORTED_LANGS = ['en', 'fr', 'ar'];
+const DEFAULT_LANG = 'en';
+const LANG_STORAGE_KEY = 'learnSphereLang';
+const translations = {}; // Cache for loaded translations
+
+/**
+ * Loads translation data for a specific language.
+ * @param {string} lang - The language code (e.g., 'en', 'fr').
+ * @returns {Promise<boolean>} - True if successful, false otherwise.
+ */
+async function loadTranslations(lang) {
+    if (translations[lang]) {
+        console.log(`[i18n] Translations already loaded for: ${lang}`);
+        return true; // Already loaded
+    }
+    try {
+        const response = await fetch(`locales/${lang}.json?v=${Date.now()}`); // Add cache buster
+        if (!response.ok) {
+            throw new Error(`Failed to load translations for ${lang}: ${response.statusText}`);
+        }
+        translations[lang] = await response.json();
+        console.log(`[i18n] Translations loaded for: ${lang}`);
+        return true;
+    } catch (error) {
+        console.error(`[i18n] Error loading translations for ${lang}:`, error);
+        return false;
+    }
+}
+
+/**
+ * Gets the currently selected language.
+ * Falls back to browser language or default language.
+ * @returns {string} - The current language code.
+ */
+function getCurrentLanguage() {
+    let lang = localStorage.getItem(LANG_STORAGE_KEY);
+    if (lang && SUPPORTED_LANGS.includes(lang)) {
+        return lang;
+    }
+    // Fallback to browser language if supported
+    const browserLang = navigator.language.split('-')[0];
+    if (SUPPORTED_LANGS.includes(browserLang)) {
+         console.log(`[i18n] Detected browser language: ${browserLang}`);
+         localStorage.setItem(LANG_STORAGE_KEY, browserLang); // Save detected language
+        return browserLang;
+    }
+    // Fallback to default
+    console.log(`[i18n] Falling back to default language: ${DEFAULT_LANG}`);
+    localStorage.setItem(LANG_STORAGE_KEY, DEFAULT_LANG);
+    return DEFAULT_LANG;
+}
+
+/**
+ * Sets the application language and reloads translations.
+ * Updates HTML attributes.
+ * @param {string} lang - The language code to set.
+ * @returns {Promise<boolean>} - True if language was set and loaded successfully.
+ */
+async function setLanguage(lang) {
+    if (!SUPPORTED_LANGS.includes(lang)) {
+        console.warn(`[i18n] Unsupported language: ${lang}. Falling back to ${DEFAULT_LANG}.`);
+        lang = DEFAULT_LANG;
+    }
+
+    // --- Update HTML attributes ---
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    console.log(`[i18n] Set HTML lang='${lang}', dir='${document.documentElement.dir}'`);
+
+    localStorage.setItem(LANG_STORAGE_KEY, lang);
+    console.log(`[i18n] Language set to: ${lang} in localStorage.`);
+
+    // Load translations for the new language
+    const loadSuccess = await loadTranslations(lang);
+    if (!loadSuccess) {
+        console.error(`[i18n] Failed to load translations after setting language to ${lang}.`);
+        // Optionally fallback to English if loading fails, but this might be confusing.
+        // We'll return false to signal the failure.
+    }
+     return loadSuccess;
+}
+
+/**
+ * Translates a key into the current language.
+ * Supports simple variable replacement using {varName}.
+ * @param {string} key - The translation key (from JSON files).
+ * @param {object} [variables={}] - An object containing variables for replacement.
+ * @returns {string} - The translated string or the key itself if not found.
+ */
+function t(key, variables = {}) {
+    const currentLang = getCurrentLanguage(); // Get current language setting
+    const langTranslations = translations[currentLang];
+
+    // Check if translations for the current language are loaded
+    if (!langTranslations) {
+        console.warn(`[i18n] Translations not loaded for language: ${currentLang}. Cannot translate key: ${key}. Attempting load...`);
+        // Attempt to load synchronously (not ideal, but might help in some scenarios)
+        // A better approach is ensuring loading happens reliably earlier.
+        // For now, just return a placeholder.
+        return `{{${key}}}`; // Use different brackets to signify loading issue
+    }
+
+    let translation = langTranslations[key];
+
+    // Handle missing keys
+    if (translation === undefined) {
+        console.warn(`[i18n] Missing translation key '${key}' for language '${currentLang}'.`);
+        // Fallback to English if key missing in current language (Optional)
+        if (currentLang !== DEFAULT_LANG) {
+            const fallbackTranslation = translations[DEFAULT_LANG]?.[key];
+            if (fallbackTranslation !== undefined) {
+                console.warn(`[i18n] Using fallback translation for key '${key}' from language '${DEFAULT_LANG}'.`);
+                translation = fallbackTranslation;
+            } else {
+                return `{${key}}`; // Return the key wrapped if not found in default either
+            }
+        } else {
+             return `{${key}}`; // Return the key itself wrapped if not found in default
+        }
+    }
+
+    // Replace variables if any
+    return replaceVariables(translation, variables);
+}
+
+/**
+ * Helper function to replace placeholders like {varName} in a string.
+ * @param {string} str - The string containing placeholders.
+ * @param {object} variables - Key-value pairs for replacement.
+ * @returns {string} - The string with variables replaced.
+ */
+function replaceVariables(str, variables) {
+     if (typeof str !== 'string') return str; // Should not happen if JSON is correct
+     Object.entries(variables).forEach(([varKey, value]) => {
+         // Ensure value is a string or number before replacing
+         const replacementValue = (typeof value === 'string' || typeof value === 'number') ? value : JSON.stringify(value);
+         // Use a regex for global replacement
+         const regex = new RegExp(`\\{${varKey}\\}`, 'g');
+         str = str.replace(regex, replacementValue);
+     });
+     // Check for remaining placeholders (indicates missing variables passed to t())
+     if (/\{\w+\}/.test(str)) {
+        console.warn(`[i18n] Potential missing variables in translation: "${str}"`);
+     }
+     return str;
+}
+
+// Initialize i18n on load
+async function initializeI18n() {
+    const initialLang = getCurrentLanguage();
+    // Set initial HTML attributes
+    document.documentElement.lang = initialLang;
+    document.documentElement.dir = initialLang === 'ar' ? 'rtl' : 'ltr';
+    console.log(`[i18n] Initializing with lang='${initialLang}', dir='${document.documentElement.dir}'`);
+    // Load translations for the initial language
+    return await loadTranslations(initialLang);
+}
+
+export { t, setLanguage, getCurrentLanguage, initializeI18n, SUPPORTED_LANGS };
+```
+
+**`store.js` (Robustness for Admin Stats)**
+
+```javascript
+// js/store.js - Manages application data using localStorage and provides stats
+import { getCurrentLanguage } from './i18n.js'; // Import for date formatting if needed
+
+const USERS_KEY = 'coursePlatformUsers';
+const COURSES_KEY = 'coursePlatformCourses';
+const CURRENT_USER_KEY = 'coursePlatformCurrentUser';
+const LAST_NOTIF_CHECK_KEY = 'learnSphereLastNotifCheck'; // For simulated notifications
+const DATA_FILE_PATH = 'data.json'; // Path to the default data file
+
+// --- LocalStorage Helpers ---
+function getData(key) {
+    try {
+        const data = localStorage.getItem(key);
+        // Ensure data is not null, undefined, or the string "undefined"
+        if (data && data !== 'undefined' && data !== 'null') {
+            return JSON.parse(data);
+        }
+        console.log(`[Store] No valid data found in localStorage for key "${key}".`);
+        return null;
+    } catch (e) {
+        console.error(`Error parsing localStorage item "${key}":`, e);
+        console.warn(`[Store] Removing potentially corrupted item for key "${key}".`);
+        localStorage.removeItem(key);
+        return null;
+    }
+}
+
+function setData(key, value) {
+    try {
+        if (value === undefined) {
+             console.warn(`Attempted to set undefined value for key "${key}". Skipping.`);
+             return;
+        }
+        localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+        // Handle potential storage quota exceeded errors
+        if (e.name === 'QuotaExceededError') {
+             console.error(`[Store] QuotaExceededError: Failed to set item for key "${key}". LocalStorage might be full.`);
+             // Optionally: alert the user or implement more sophisticated cache eviction
+        } else {
+            console.error(`Error setting localStorage item "${key}":`, e);
+        }
+    }
+}
+
+// --- Store Initialization ---
+async function initializeStore() {
+    console.log('[Store] Initializing...');
+    let users = getData(USERS_KEY);
+    let courses = getData(COURSES_KEY);
+    let usersExist = Array.isArray(users) && users.length > 0;
+    let coursesExist = Array.isArray(courses) && courses.length > 0;
+    let initializationSuccess = true;
+
+    if (!usersExist || !coursesExist) {
+        console.log('[Store] localStorage data missing or incomplete, attempting to load from', DATA_FILE_PATH);
+        try {
+            const response = await fetch(`${DATA_FILE_PATH}?v=${Date.now()}`); // Cache buster
+            if (!response.ok) {
+                throw new Error(`Failed to fetch ${DATA_FILE_PATH}: ${response.status} ${response.statusText}`);
+            }
+            const defaultData = await response.json();
+            console.log('[Store] Loaded default data from JSON.');
+
+            // Initialize users ONLY if they don't exist or are not an array
+            if (!Array.isArray(users) && defaultData.defaultUsers) {
+                 const usersWithDefaults = defaultData.defaultUsers.map(user => ({
+                    ...user,
+                    id: user.id || `u_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                    // Ensure createdAt is a valid ISO string or create one
+                    createdAt: user.createdAt && !isNaN(new Date(user.createdAt).getTime())
+                                ? new Date(user.createdAt).toISOString()
+                                : new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString()
+                 }));
+                setData(USERS_KEY, usersWithDefaults);
+                console.log('[Store] Initialized Users from defaults.');
+                usersExist = true; // Mark as existing for subsequent checks
+            } else if (!usersExist) {
+                console.log('[Store] No default users found or users array is empty, initializing empty user array.');
+                setData(USERS_KEY, []); // Initialize empty if no defaults
+            }
+
+
+            // Initialize courses ONLY if they don't exist or are not an array
+            if (!Array.isArray(courses) && defaultData.defaultCourses) {
+                const coursesWithDefaults = defaultData.defaultCourses.map(course => ({
+                    ...course,
+                    id: course.id || `c_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                    enrolledStudentIds: Array.isArray(course.enrolledStudentIds) ? course.enrolledStudentIds : [],
+                    liveSessions: Array.isArray(course.liveSessions) ? course.liveSessions.map(session => ({ // Ensure session IDs and dates
+                        ...session,
+                        id: session.id || `ls_${course.id || 'new'}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+                        scheduledAt: session.scheduledAt && !isNaN(new Date(session.scheduledAt).getTime())
+                                        ? new Date(session.scheduledAt).toISOString()
+                                        : new Date().toISOString() // Default to now if missing/invalid
+                    })) : [],
+                    createdAt: course.createdAt && !isNaN(new Date(course.createdAt).getTime())
+                                ? new Date(course.createdAt).toISOString()
+                                : new Date(Date.now() - Math.random() * 60 * 24 * 60 * 60 * 1000).toISOString()
+                }));
+                setData(COURSES_KEY, coursesWithDefaults);
+                console.log('[Store] Initialized Courses from defaults.');
+                coursesExist = true; // Mark as existing
+            } else if (!coursesExist) {
+                console.log('[Store] No default courses found or courses array is empty, initializing empty course array.');
+                 setData(COURSES_KEY, []); // Initialize empty if no defaults
+            }
+
+        } catch (error) {
+            console.error("[Store] ERROR loading or parsing default data JSON:", error);
+             // If defaults fail, ensure keys still exist with empty arrays
+            if (!getData(USERS_KEY)) setData(USERS_KEY, []);
+            if (!getData(COURSES_KEY)) setData(COURSES_KEY, []);
+            initializationSuccess = false;
+        }
+    } else {
+        console.log('[Store] Users and Courses data found in localStorage.');
+        // Migration check: Ensure existing courses have necessary fields (like liveSessions)
+        let currentCourses = getCourses(); // Use getter to ensure it's an array
+        let updated = false;
+        currentCourses = currentCourses.map(c => {
+             if (c && !Array.isArray(c.liveSessions)) {
+                console.log(`[Store Migration] Adding liveSessions array to course ID ${c.id}`);
+                c.liveSessions = [];
+                updated = true;
+             }
+             // Ensure enrolledStudentIds is an array
+             if (c && !Array.isArray(c.enrolledStudentIds)) {
+                console.log(`[Store Migration] Fixing enrolledStudentIds for course ID ${c.id}`);
+                c.enrolledStudentIds = [];
+                updated = true;
+             }
+             // Ensure price is a number or default to 0
+             if (c && (typeof c.price !== 'number' || isNaN(c.price))) {
+                 console.log(`[Store Migration] Fixing price for course ID ${c.id}`);
+                 c.price = 0;
+                 updated = true;
+             }
+             // Ensure live sessions have required fields
+             if (c && Array.isArray(c.liveSessions)) {
+                 c.liveSessions = c.liveSessions.map(session => {
+                     let sessionUpdated = false;
+                     if (!session.id) {
+                         session.id = `ls_${c.id}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+                         sessionUpdated = true;
+                     }
+                     if (!session.scheduledAt || isNaN(new Date(session.scheduledAt).getTime())) {
+                         session.scheduledAt = new Date().toISOString(); // Default to now
+                         sessionUpdated = true;
+                     }
+                     if(sessionUpdated) updated = true;
+                     return session;
+                 });
+             }
+            return c;
+        });
+        if (updated) {
+            setData(COURSES_KEY, currentCourses);
+            console.log('[Store] Updated existing courses structure during initialization.');
+        }
+    }
+
+    // Fallback: Ensure keys exist even if everything above failed
+    if (!getData(USERS_KEY)) setData(USERS_KEY, []);
+    if (!getData(COURSES_KEY)) setData(COURSES_KEY, []);
+
+    // Initialize notification check time if it doesn't exist
+    if (!localStorage.getItem(LAST_NOTIF_CHECK_KEY)) {
+        // Set to a very old date to ensure first-time notifications show up
+        localStorage.setItem(LAST_NOTIF_CHECK_KEY, new Date(0).toISOString());
+    }
+
+    console.log(`[Store] Initialization complete. Users: ${getUsers().length}, Courses: ${getCourses().length}`);
+    return initializationSuccess;
+}
+
+
+// --- User Management ---
+function getUsers() {
+    const users = getData(USERS_KEY);
+    // Ensure it always returns an array
+    return Array.isArray(users) ? users : [];
+}
+
+function addUser(user) {
+    // **SECURITY WARNING:** Storing plaintext passwords like this is INSECURE.
+    // In a real application, hash the password on the SERVER before storing.
+    // Do NOT store plaintext passwords in localStorage or anywhere client-side.
+    console.warn("[SECURITY] Storing plaintext password. This is insecure and for demonstration only.");
+    const users = getUsers();
+    const newUser = {
+        ...user, // Spread incoming user data
+        id: user.id || `u_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        createdAt: user.createdAt || new Date().toISOString(),
+        // Ensure role is valid, default to client if missing/invalid?
+        role: ['client', 'provider', 'admin'].includes(user.role) ? user.role : 'client'
+    };
+    users.push(newUser);
+    setData(USERS_KEY, users);
+    console.log(`[Store] Added user: ${newUser.username} (Role: ${newUser.role}, ID: ${newUser.id})`);
+    return newUser; // Return the fully formed user object
+}
+
+
+function findUserByUsername(usernameToFind) {
+    if (!usernameToFind) return null;
+    // Use the getter to ensure we work with an array
+    return getUsers().find(user => user?.username === usernameToFind) || null;
+}
+
+
+function findUserById(id) {
+    if (!id) return null;
+    return getUsers().find(user => user?.id === id) || null;
+}
+
+function setLoggedInUser(userId) {
+    if (!userId) {
+        console.warn("[Store] Attempted to set logged in user with null/undefined ID.");
+        clearLoggedInUser(); // Clear any existing invalid session
+        return;
+    }
+     // Verify the user actually exists before setting the session
+     if (!findUserById(userId)) {
+         console.error(`[Store] Attempted to set logged in user for non-existent ID: ${userId}. Clearing session.`);
+         clearLoggedInUser();
+         return;
+     }
+    setData(CURRENT_USER_KEY, userId);
+    console.log(`[Store] Logged in user ID set to: ${userId}`);
+}
+
+function getLoggedInUser() {
+    const userId = getData(CURRENT_USER_KEY);
+    if (!userId) return null;
+    const user = findUserById(userId);
+     if (!user) {
+         console.warn(`[Store] Logged in user ID ${userId} found, but no matching user in store. Clearing invalid session.`);
+         clearLoggedInUser();
+         return null;
+     }
+    // console.log("[Store] Retrieved logged in user:", user); // Debug log
+    return user;
+}
+
+function clearLoggedInUser() {
+    localStorage.removeItem(CURRENT_USER_KEY);
+    console.log('[Store] Logged in user cleared.');
+}
+
+// --- Course Management ---
+function getCourses() {
+    const courses = getData(COURSES_KEY);
+     // Ensure it always returns an array
+    return Array.isArray(courses) ? courses : [];
+}
+
+function addCourse(courseData) {
+    if (!courseData || !courseData.title || !courseData.providerId || typeof courseData.price === 'undefined') {
+         console.error("[Store] Add course failed: Missing required data (title, providerId, price).", courseData);
+         return null; // Indicate failure
+    }
+    const courses = getCourses();
+    const newCourse = {
+        title: courseData.title,
+        description: courseData.description || "", // Default description
+        price: parseFloat(courseData.price) || 0, // Ensure price is a number, default 0
+        providerId: courseData.providerId,
+        id: courseData.id || `c_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        enrolledStudentIds: [], // Start with empty enrollment
+        liveSessions: [], // Start with empty sessions
+        createdAt: courseData.createdAt || new Date().toISOString()
+    };
+    courses.push(newCourse);
+    setData(COURSES_KEY, courses);
+    console.log(`[Store] Added course: "${newCourse.title}" (ID: ${newCourse.id}) by Provider ${newCourse.providerId}`);
+    return newCourse; // Return the created course
+}
+
+function findCourseById(id) {
+     if (!id) return null;
+     return getCourses().find(course => course?.id === id) || null;
+}
+
+function updateCourse(updatedCourseData) {
+    if (!updatedCourseData?.id) {
+        console.warn("[Store] Update course failed: Invalid or missing course ID.");
+        return false;
+    }
+    const courses = getCourses();
+    const index = courses.findIndex(course => course?.id === updatedCourseData.id);
+
+    if (index !== -1) {
+         // Ensure essential fields are preserved and updated correctly
+         const originalCourse = courses[index];
+         courses[index] = {
+            ...originalCourse, // Start with original data
+            ...updatedCourseData, // Overwrite with updated data
+            // Ensure arrays are preserved/updated correctly, not overwritten by missing fields
+            enrolledStudentIds: updatedCourseData.enrolledStudentIds ?? originalCourse.enrolledStudentIds ?? [],
+            liveSessions: updatedCourseData.liveSessions ?? originalCourse.liveSessions ?? [],
+             // Ensure immutable fields are not changed
+             id: originalCourse.id,
+             providerId: originalCourse.providerId, // Provider shouldn't change via this method
+             createdAt: originalCourse.createdAt
+        };
+        setData(COURSES_KEY, courses);
+        console.log(`[Store] Updated course ID: ${updatedCourseData.id}`);
+        return true;
+    }
+    console.warn(`[Store] Update failed: Course ID ${updatedCourseData.id} not found.`);
+    return false;
+}
+
+
+function deleteCourse(id) {
+     if (!id) {
+        console.warn("[Store] Delete course failed: Invalid ID provided.");
+        return false;
+     }
+    let courses = getCourses();
+    const initialLength = courses.length;
+    courses = courses.filter(course => !(course?.id === id)); // Filter out the course
+
+    if (courses.length < initialLength) {
+        setData(COURSES_KEY, courses);
+        console.log(`[Store] Deleted course ID: ${id}`);
+        return true;
+    }
+    console.warn(`[Store] Delete failed: Course ID ${id} not found or already deleted.`);
+    return false;
+}
+
+
+function getCoursesByProvider(providerId) {
+     if (!providerId) return [];
+     return getCourses().filter(course => course?.providerId === providerId);
+}
+
+function getCoursesEnrolledByStudent(studentId) {
+     if (!studentId) return [];
+     return getCourses().filter(course =>
+        // Check that course exists and enrolledStudentIds is an array before includes()
+        course && Array.isArray(course.enrolledStudentIds) && course.enrolledStudentIds.includes(studentId)
+    );
+}
+
+function enrollStudentInCourse(courseId, studentId) {
+    if (!courseId || !studentId) {
+         console.warn("[Store] Enrollment failed: Missing courseId or studentId.");
+         return false;
+    }
+    const course = findCourseById(courseId);
+    if (!course) {
+        console.warn(`[Store] Enrollment failed: Course ${courseId} not found.`);
+        return false;
+    }
+     // Ensure enrolledStudentIds is an array (might be missing from older data)
+    if (!Array.isArray(course.enrolledStudentIds)) {
+        console.warn(`[Store] Course ${courseId} missing enrolledStudentIds array, initializing.`);
+        course.enrolledStudentIds = [];
+    }
+
+    if (!course.enrolledStudentIds.includes(studentId)) {
+        course.enrolledStudentIds.push(studentId);
+        const success = updateCourse(course); // updateCourse handles saving
+        if (success) {
+             console.log(`[Store] Student ${studentId} enrolled in course ${courseId}.`);
+        } else {
+            console.error(`[Store] Failed to update course ${courseId} after attempting to enroll student ${studentId}. Rolling back enrollment locally.`);
+            // Rollback the local change if saving failed
+            const index = course.enrolledStudentIds.indexOf(studentId);
+            if (index > -1) course.enrolledStudentIds.splice(index, 1);
+        }
+        return success; // Return the result of the save operation
+    } else {
+        console.log(`[Store] Enrollment skipped: Student ${studentId} already enrolled in ${courseId}.`);
+        // Return true because the desired state (student enrolled) is met.
+        // Or return false/specific code if you need to distinguish "already enrolled" from "failed".
+        // Let's return true here, indicating the student IS enrolled.
+        return true;
+    }
+}
+
+function getEnrolledStudentsDetails(courseId) {
+    const course = findCourseById(courseId);
+    if (!course || !Array.isArray(course.enrolledStudentIds) || course.enrolledStudentIds.length === 0) {
+        return [];
+    }
+    // Map student IDs to user objects, filtering out nulls (if user was deleted)
+    return course.enrolledStudentIds
+        .map(studentId => findUserById(studentId))
+        .filter(user => user !== null); // Filter out nulls if a user was deleted
+}
+
+// --- Live Session Management ---
+
+/**
+ * Adds a live session to a specific course.
+ * @param {string} courseId - The ID of the course.
+ * @param {object} sessionData - Object with { title, dateTime, meetingLink }.
+ * @returns {boolean} - True if successful, false otherwise.
+ */
+function addLiveSession(courseId, sessionData) {
+    if (!courseId || !sessionData || !sessionData.title || !sessionData.dateTime || !sessionData.meetingLink) {
+        console.warn('[Store] Add live session failed: Missing courseId or required session data (title, dateTime, meetingLink).', sessionData);
+        return false;
+    }
+    const course = findCourseById(courseId);
+    if (!course) {
+        console.warn(`[Store] Add live session failed: Course ${courseId} not found.`);
+        return false;
+    }
+
+    // Ensure liveSessions array exists
+    if (!Array.isArray(course.liveSessions)) {
+         console.warn(`[Store] Course ${courseId} missing liveSessions array, initializing.`);
+        course.liveSessions = [];
+    }
+
+    // Validate date/time
+    const sessionDate = new Date(sessionData.dateTime);
+    if (isNaN(sessionDate.getTime())) {
+        console.warn(`[Store] Add live session failed: Invalid dateTime format "${sessionData.dateTime}".`);
+        return false;
+    }
+
+    const newSession = {
+        id: `ls_${courseId}_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        title: sessionData.title,
+        dateTime: sessionDate.toISOString(), // Store consistently as ISO string
+        meetingLink: sessionData.meetingLink,
+        scheduledAt: new Date().toISOString() // Record when it was scheduled *now*
+    };
+
+    course.liveSessions.push(newSession);
+    // Sort sessions by date (most recent first, or upcoming first? Let's do upcoming first)
+    course.liveSessions.sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+
+    const success = updateCourse(course); // updateCourse handles saving
+    if (success) {
+        console.log(`[Store] Added live session '${newSession.title}' to course ${courseId}. Scheduled at: ${newSession.scheduledAt}`);
+    } else {
+        console.error(`[Store] Failed to update course ${courseId} after adding live session. Rolling back local change.`);
+         // Rollback the local change if saving failed
+         const index = course.liveSessions.findIndex(s => s.id === newSession.id);
+         if(index > -1) course.liveSessions.splice(index,1);
+    }
+    return success;
+}
+
+/**
+ * Retrieves all live sessions for a given course, sorted by date (upcoming first).
+ * @param {string} courseId - The ID of the course.
+ * @returns {Array} - An array of session objects, or empty array if not found/no sessions.
+ */
+function getLiveSessionsForCourse(courseId) {
+    const course = findCourseById(courseId);
+    if (!course || !Array.isArray(course.liveSessions)) {
+        return []; // Return empty array if course not found or no sessions array
+    }
+    // Return a sorted copy (upcoming first)
+    return [...course.liveSessions].sort((a, b) => new Date(a.dateTime) - new Date(b.dateTime));
+}
+
+// --- Simulated Notification Management ---
+
+/**
+ * Gets the timestamp of the last notification check.
+ * @returns {string} - ISO date string. Defaults to epoch if not set.
+ */
+function getLastNotificationCheckTime() {
+    return localStorage.getItem(LAST_NOTIF_CHECK_KEY) || new Date(0).toISOString();
+}
+
+/**
+ * Updates the timestamp of the last notification check to now.
+ */
+function updateLastNotificationCheckTime() {
+    const now = new Date().toISOString();
+    localStorage.setItem(LAST_NOTIF_CHECK_KEY, now);
+    console.log(`[Store] Updated last notification check time to: ${now}`);
+}
+
+// --- Statistics for Admin Dashboard (Added Robustness) ---
+
+function getUserCountsByRole() {
+    const users = getUsers(); // Use getter
+    // Initialize counts
+    const counts = { admin: 0, provider: 0, client: 0, total: 0, unknown: 0 };
+    if (!Array.isArray(users)) {
+         console.error("[Store Stats] User data is not an array:", users);
+         return counts; // Return default zero counts
+    }
+    counts.total = users.length;
+    users.forEach(user => {
+        if (user && user.role && counts.hasOwnProperty(user.role)) {
+            counts[user.role]++;
+        } else {
+             counts.unknown++;
+             console.warn(`[Store Stats] User with ID ${user?.id || '?'} has invalid or missing role: ${user?.role}`);
+        }
+    });
+    if (counts.unknown > 0) console.warn(`[Store Stats] Found ${counts.unknown} users with unknown roles.`);
+    console.log("[Store Stats] User Counts:", counts); // Log results
+    return counts;
+}
+
+function getTotalCourseCount() {
+    const count = getCourses().length; // Use getter
+    console.log("[Store Stats] Total Course Count:", count);
+    return count;
+}
+
+function getCoursePriceStats() {
+    const courses = getCourses(); // Use getter
+    const totalCourses = courses.length;
+    const defaultStats = { averagePrice: 0, freeCount: 0, paidCount: 0, percentFree: 0, totalCourses: 0 };
+
+    if (!Array.isArray(courses) || totalCourses === 0) {
+        console.log("[Store Stats] No courses found for price stats.");
+        return defaultStats;
+    }
+
+    defaultStats.totalCourses = totalCourses;
+    let totalPriceSum = 0;
+    let validPriceCount = 0; // Count only courses with valid numeric prices for average calculation
+
+    courses.forEach(course => {
+        if (!course) return; // Skip potentially null entries
+        const price = parseFloat(course.price);
+
+        if (isNaN(price) || price < 0) {
+            // Treat invalid or negative prices as free for counting purposes
+            defaultStats.freeCount++;
+            console.warn(`[Store Stats] Course ID ${course.id} has invalid price '${course.price}', counted as free.`);
+        } else {
+            totalPriceSum += price;
+            validPriceCount++; // Increment count for valid prices
+            if (price === 0) {
+                defaultStats.freeCount++;
+            } else {
+                defaultStats.paidCount++;
+            }
+        }
+    });
+
+    // Calculate average based only on courses with valid prices
+    defaultStats.averagePrice = validPriceCount > 0 ? totalPriceSum / validPriceCount : 0;
+    defaultStats.percentFree = totalCourses > 0 ? (defaultStats.freeCount / totalCourses) * 100 : 0;
+
+    console.log("[Store Stats] Price Stats:", defaultStats); // Log results
+    return defaultStats;
+}
+
+
+function getSimulatedTotalRevenue() {
+    const courses = getCourses(); // Use getter
+    if (!Array.isArray(courses)) return 0;
+
+    const totalRevenue = courses.reduce((sum, course) => {
+         if (!course) return sum; // Skip null entries
+         const price = parseFloat(course.price);
+         // Only consider courses with a positive price
+         if (isNaN(price) || price <= 0) return sum;
+         // Ensure enrolledStudentIds is an array before getting length
+         const enrollmentCount = Array.isArray(course.enrolledStudentIds) ? course.enrolledStudentIds.length : 0;
+         return sum + (price * enrollmentCount);
+    }, 0); // Start sum at 0
+    console.log("[Store Stats] Simulated Total Revenue:", totalRevenue);
+    return totalRevenue;
+}
+
+function getEnrollmentStats() {
+    const courses = getCourses(); // Use getter
+    const totalCourses = courses.length;
+    const defaultStats = { totalEnrollments: 0, averageEnrollments: 0, coursesWithEnrollment: 0 };
+    if (!Array.isArray(courses) || totalCourses === 0) {
+        console.log("[Store Stats] No courses found for enrollment stats.");
+        return defaultStats;
+    }
+
+    defaultStats.totalEnrollments = courses.reduce((sum, course) => {
+        if (!course) return sum; // Skip null entries
+        // Ensure enrolledStudentIds is an array
+        const count = Array.isArray(course.enrolledStudentIds) ? course.enrolledStudentIds.length : 0;
+        if (count > 0) {
+            defaultStats.coursesWithEnrollment++;
+        }
+        return sum + count;
+    }, 0);
+
+    // Calculate average based on total courses
+    defaultStats.averageEnrollments = totalCourses > 0 ? defaultStats.totalEnrollments / totalCourses : 0;
+
+    console.log("[Store Stats] Enrollment Stats:", defaultStats); // Log results
+    return defaultStats;
+}
+
+function getCoursesPerProviderData() {
+    const courses = getCourses(); // Use getter
+    const providers = getUsers().filter(user => user?.role === 'provider'); // Use getter
+    const providerCounts = {};
+    let unknownCount = 0; // Count courses with missing/invalid providerId
+
+    // Initialize known providers with 0 count
+    providers.forEach(p => { if(p?.username) providerCounts[p.username] = 0; });
+
+    if (!Array.isArray(courses)) {
+        console.error("[Store Stats] Courses data is not an array for CoursesPerProvider.");
+        return { labels: [], data: [] };
+    }
+
+    courses.forEach(course => {
+        if (!course || !course.providerId) {
+            unknownCount++;
+            console.warn(`[Store Stats] Course ID ${course?.id || '?'} missing providerId.`);
+            return; // Skip this course
+        }
+        const provider = findUserById(course.providerId); // Find provider details
+        if (provider?.username && providerCounts.hasOwnProperty(provider.username)) {
+            providerCounts[provider.username]++;
+        } else {
+            // Provider ID exists but doesn't match a known provider (maybe deleted user)
+            unknownCount++;
+             console.warn(`[Store Stats] Provider ID ${course.providerId} for Course ID ${course.id} not found or provider has no username.`);
+        }
+    });
+
+    // Add unknown count if any courses had issues
+    if (unknownCount > 0) {
+        providerCounts['Unknown/Deleted'] = unknownCount;
+    }
+
+     // Filter out providers with 0 courses unless it's the 'Unknown' category
+     const filteredLabels = Object.keys(providerCounts).filter(label => providerCounts[label] > 0 || label === 'Unknown/Deleted');
+     const filteredData = filteredLabels.map(label => providerCounts[label]);
+
+     console.log("[Store Stats] Courses Per Provider:", { labels: filteredLabels, data: filteredData }); // Log results
+    return { labels: filteredLabels, data: filteredData };
+}
+
+
+function getTopEnrolledCourses(limit = 5) {
+    const courses = getCourses(); // Use getter
+    if (!Array.isArray(courses)) return { labels: [], data: [] };
+
+    const coursesWithEnrollment = courses
+        .filter(c => c?.id && c.title) // Ensure course has ID and title
+        .map(c => ({
+            title: c.title, // Select only needed fields
+            enrollmentCount: Array.isArray(c.enrolledStudentIds) ? c.enrolledStudentIds.length : 0
+        }))
+        .filter(c => c.enrollmentCount > 0) // Only include courses with enrollments
+        .sort((a, b) => b.enrollmentCount - a.enrollmentCount); // Sort descending
+
+    const top = coursesWithEnrollment.slice(0, limit); // Get the top N
+
+    const result = { labels: top.map(c => c.title), data: top.map(c => c.enrollmentCount) };
+    console.log("[Store Stats] Top Enrolled Courses:", result); // Log results
+    return result;
+}
+
+
+// --- Export store functions ---
+export {
+    initializeStore,
+    // Users
+    getUsers, addUser, findUserByUsername, findUserById,
+    setLoggedInUser, getLoggedInUser, clearLoggedInUser,
+    // Courses
+    getCourses, addCourse, findCourseById, updateCourse, deleteCourse,
+    getCoursesByProvider, getCoursesEnrolledByStudent, enrollStudentInCourse,
+    getEnrolledStudentsDetails,
+    // Live Sessions
+    addLiveSession, getLiveSessionsForCourse,
+    // Notifications (Simulated)
+    getLastNotificationCheckTime, updateLastNotificationCheckTime,
+    // Statistics
+    getUserCountsByRole, getTotalCourseCount, getCoursePriceStats,
+    getSimulatedTotalRevenue, getEnrollmentStats, getCoursesPerProviderData,
+    getTopEnrolledCourses
+};
+```
+
+**`views.js` (Admin Chart/Data Robustness & Notification Display)**
+
+```javascript
+// --- START OF FILE js/views.js ---
+// js/views.js - Handles rendering different views/pages and UI updates
+import * as store from './store.js';
+import * as auth from './auth.js';
+import { t, getCurrentLanguage, SUPPORTED_LANGS } from './i18n.js'; // Import i18n
+
+// --- Cache jQuery Selectors ---
+const $contentWrapper = $('#content-wrapper');
+const $navLinks = $('#nav-links');
+const $adminSidebar = $('#admin-sidebar');
+const $mainViewArea = $('#main-view-area');
+const $initialLoading = $('#initial-loading');
+
+// --- Chart Management ---
+let activeCharts = {};
+
+// Destroys a specific chart instance if it exists
+function destroyChart(chartId) {
+    if (activeCharts[chartId]) {
+        console.log(`[Chart] Destroying existing chart: ${chartId}`);
+        try {
+            activeCharts[chartId].destroy();
+        } catch (e) {
+            console.error(`[Chart] Error destroying chart ${chartId}:`, e);
+        } finally {
+            delete activeCharts[chartId]; // Remove reference even if destroy failed
+        }
+    }
+}
+
+// Destroys all currently active charts
+function destroyAllCharts() {
+     console.log("[Chart] Destroying all active charts.");
+     Object.keys(activeCharts).forEach(destroyChart); // Iterate and destroy each
+}
+
+// --- Course Icon Helper ---
+function getCourseIcon(title = '') {
+    const lowerTitle = (title || '').toLowerCase(); // Ensure title is a string and handle potential null/undefined
+    if (lowerTitle.includes('web') || lowerTitle.includes('html') || lowerTitle.includes('css') || lowerTitle.includes('javascript') || lowerTitle.includes('react') || lowerTitle.includes('node')) return 'bi-code-slash';
+    if (lowerTitle.includes('python') || lowerTitle.includes('data') || lowerTitle.includes('analysis') || lowerTitle.includes('machine learning') || lowerTitle.includes('scraping')) return 'bi-bar-chart-line-fill';
+    if (lowerTitle.includes('design') || lowerTitle.includes('ui/ux') || lowerTitle.includes('graphic')) return 'bi-palette-fill';
+    if (lowerTitle.includes('photo') || lowerTitle.includes('camera') || lowerTitle.includes('paint') || lowerTitle.includes('watercolor') || lowerTitle.includes('creative') || lowerTitle.includes('writing')) return 'bi-camera-fill';
+    if (lowerTitle.includes('speak') || lowerTitle.includes('present') || lowerTitle.includes('masterclass')) return 'bi-mic-fill';
+    if (lowerTitle.includes('meditation') || lowerTitle.includes('mindful') || lowerTitle.includes('yoga') || lowerTitle.includes('well-being') || lowerTitle.includes('stress')) return 'bi-peace-fill';
+    if (lowerTitle.includes('excel') || lowerTitle.includes('spreadsheet')) return 'bi-file-earmark-excel-fill';
+    if (lowerTitle.includes('structure') || lowerTitle.includes('algorithm')) return 'bi-diagram-3-fill';
+    return 'bi-book-half'; // Default
+}
+
+// --- Date Formatting Helper ---
+function formatDateTime(isoString) {
+    if (!isoString) return t('notAvailable', { default: 'N/A'}); // Use translation key
+    try {
+        const date = new Date(isoString);
+        // Check if the date is valid
+        if (isNaN(date.getTime())) {
+            console.warn("Invalid date string received for formatting:", isoString);
+            return t('invalidDate', { default: 'Invalid Date'}); // Use translation key
+        }
+        const lang = getCurrentLanguage(); // Get current language for locale formatting
+        // Define formatting options
+        const options = {
+            year: 'numeric', month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit', hour12: true // Example: Sep 15, 2024, 3:05 PM
+        };
+        // Use Intl.DateTimeFormat for locale-aware formatting
+        return new Intl.DateTimeFormat(lang, options).format(date);
+    } catch (e) {
+        console.error("Error formatting date:", isoString, e);
+        return t('invalidDate', { default: 'Invalid Date'}); // Use translation key on error
+    }
+}
+
+// --- Navbar Rendering ---
+export function renderNavbar() {
+    const currentUser = auth.getCurrentUser();
+    let navHtml = '';
+    const currentHash = window.location.hash || '#home';
+    const currentBasePath = currentHash.split('/')[0]; // Get base path like #dashboard
+    const currentLang = getCurrentLanguage();
+
+    // Home Link (Always Visible)
+    navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#home' ? 'active' : ''}" href="#home"><i class="bi bi-house-door-fill"></i> ${t('navHome')}</a></li>`;
+
+    // Conditional Links Based on Login Status & Role
+    if (currentUser) {
+        // Logged In User Links
+        const userRoleKey = `role${currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1)}`; // e.g., roleClient
+
+        // Dashboard link (adjust based on role if needed, but generic #dashboard usually works)
+        navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#dashboard' || currentBasePath === '#admin-dashboard' ? 'active' : ''}" href="#dashboard"><i class="bi bi-speedometer2"></i> ${t('navDashboard')}</a></li>`;
+
+        // Role-specific links
+        if (currentUser.role === 'client') {
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#browse-courses' ? 'active' : ''}" href="#browse-courses"><i class="bi bi-search"></i> ${t('navBrowseCourses')}</a></li>`;
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#my-courses' ? 'active' : ''}" href="#my-courses"><i class="bi bi-bookmark-check-fill"></i> ${t('navMyCourses')}</a></li>`;
+        } else if (currentUser.role === 'provider') {
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#browse-courses' ? 'active' : ''}" href="#browse-courses"><i class="bi bi-search"></i> ${t('navBrowseCourses')}</a></li>`;
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#my-courses' ? 'active' : ''}" href="#my-courses"><i class="bi bi-journal-richtext"></i> ${t('navMyCourses')}</a></li>`;
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#create-course' ? 'active' : ''}" href="#create-course"><i class="bi bi-plus-circle-fill"></i> ${t('navCreateCourse')}</a></li>`;
+        } else if (currentUser.role === 'admin') {
+            // Admin Panel link highlights for any #admin-* route
+            navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath.startsWith('#admin-') ? 'active' : ''}" href="#admin-dashboard"><i class="bi bi-shield-lock-fill"></i> ${t('navAdminPanel')}</a></li>`;
+        }
+
+        // User Dropdown Menu (Pushed Right by ms-lg-auto)
+        navHtml += `
+            <li class="nav-item dropdown ms-lg-auto">
+                <a class="nav-link dropdown-toggle d-flex align-items-center" href="#" id="navbarUserDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="bi bi-person-circle fs-5 me-1"></i> ${currentUser.username}
+                </a>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarUserDropdown">
+                    <li><span class="dropdown-item-text"><small class="text-muted">${t('userRole')}: ${t(userRoleKey)}</small></span></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><button id="logout-button" class="dropdown-item" type="button"><i class="bi bi-box-arrow-right"></i> ${t('navLogout')}</button></li>
+                </ul>
+            </li>`;
+
+    } else {
+        // Logged Out User Links
+        navHtml += `<li class="nav-item"><a class="nav-link ${currentBasePath === '#browse-courses' ? 'active' : ''}" href="#browse-courses"><i class="bi bi-search"></i> ${t('navBrowseCourses')}</a></li>`;
+        // Login/Register pushed right
+        navHtml += `<li class="nav-item ms-lg-auto"><a class="nav-link ${currentBasePath === '#login' ? 'active' : ''}" href="#login"><i class="bi bi-box-arrow-in-right"></i> ${t('navLogin')}</a></li>`;
+        navHtml += `<li class="nav-item ms-lg-2"><a class="nav-link btn btn-accent btn-sm text-white px-3 ${currentBasePath === '#register' ? 'active' : ''}" href="#register"><i class="bi bi-person-plus-fill"></i> ${t('navRegister')}</a></li>`;
+    }
+
+    // Language Switcher Dropdown
+    const langOptions = SUPPORTED_LANGS.map(lang => {
+        const langKey = `lang${lang.charAt(0).toUpperCase() + lang.slice(1)}`; // e.g., langEnglish
+        return `
+        <li>
+            <button class="dropdown-item d-flex align-items-center ${currentLang === lang ? 'active' : ''}" type="button" data-lang="${lang}">
+                 ${t(langKey)} <!-- Translate language name -->
+                 ${currentLang === lang ? '<i class="bi bi-check ms-auto"></i>' : ''}
+            </button>
+        </li>`;
+    }).join('');
+
+    // Place language switcher after user dropdown or login/register buttons
+    navHtml += `
+        <li class="nav-item dropdown ms-2" id="language-switcher">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="languageDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                 <i class="bi bi-translate me-1"></i> ${currentLang.toUpperCase()}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="languageDropdown">
+                ${langOptions}
+            </ul>
+        </li>
+     `;
+
+    $navLinks.html(navHtml); // Update the navbar links area
+    // Note: Logout handler is now attached globally in main.js using delegation
+}
+
+
+// Logout Handler (Now handled globally in main.js, this function is not needed here)
+// function handleLogout() { auth.logout(); window.location.hash = '#login'; }
+
+// Admin Sidebar Management
+export function toggleAdminSidebar(show) {
+    const currentHash = window.location.hash || '#home';
+    const currentBasePath = currentHash.split('/')[0];
+
+    if (show) {
+         // Check if user is actually admin before showing
+        if (auth.getCurrentUserRole() !== 'admin') {
+            console.warn("[View] Attempted to show admin sidebar for non-admin user.");
+            return; // Don't show if not admin
+        }
+        // Generate sidebar content dynamically with translated text
+        const sidebarHtml = `
+            <div class="position-sticky pt-3 sidebar-sticky">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-1 mb-2 text-muted text-uppercase">
+                    <span>${t('navAdminPanel')}</span>
+                </h6>
+                <ul class="nav flex-column">
+                    <li class="nav-item">
+                        <a class="nav-link ${currentBasePath === '#admin-dashboard' ? 'active' : ''}" href="#admin-dashboard">
+                            <i class="bi bi-grid-1x2-fill"></i> ${t('navDashboard')}
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link ${currentBasePath === '#admin-users' ? 'active' : ''}" href="#admin-users">
+                            <i class="bi bi-people-fill"></i> ${t('adminUsersTitle')}
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link ${currentBasePath === '#admin-courses' ? 'active' : ''}" href="#admin-courses">
+                            <i class="bi bi-journal-bookmark-fill"></i> ${t('adminCoursesTitle')}
+                        </a>
+                    </li>
+                </ul>
+            </div>`;
+        $adminSidebar.html(sidebarHtml).removeClass('d-none collapse').addClass('d-md-block');
+        // Adjust main content area columns for sidebar presence
+        $mainViewArea.removeClass('col-md-12 col-lg-12').addClass('col-md-9 ms-sm-auto col-lg-10');
+        $contentWrapper.addClass('admin-active'); // Add class to parent for potential styling hooks
+    } else {
+        // Hide sidebar and reset main content area columns
+        $adminSidebar.html('').removeClass('d-md-block').addClass('d-none collapse');
+        $mainViewArea.removeClass('col-md-9 ms-sm-auto col-lg-10').addClass('col-md-12 col-lg-12');
+        $contentWrapper.removeClass('admin-active');
+        // Destroy any charts when hiding sidebar (as they are admin-specific)
+        destroyAllCharts();
+    }
+}
+
+// --- Main Content Rendering Logic ---
+function render(html, isAdminSpecific = false) {
+    // Remove initial loading spinner if it exists
+    $initialLoading.remove();
+
+    let $targetContainer;
+    const contentHtml = String(html); // Ensure html is a string
+
+    // Determine the correct container based on whether it's admin-specific content
+    if (isAdminSpecific) {
+        // Render into the dedicated admin main view area
+        $targetContainer = $mainViewArea;
+        // Clear other non-admin content areas if necessary (optional)
+        // $contentWrapper.children().not('#admin-sidebar').not($targetContainer).empty();
+        console.log("[Render] Rendering admin-specific content into #main-view-area");
+    } else {
+        // Render into the main content wrapper for non-admin pages
+        $targetContainer = $contentWrapper;
+        // Clear the admin-specific area when rendering non-admin content
+        $mainViewArea.empty();
+         console.log("[Render] Rendering general content into #content-wrapper");
+    }
+
+    // Ensure the target container exists
+    if (!$targetContainer || !$targetContainer.length) {
+        console.error(`[Render] CRITICAL ERROR: Render target container not found (isAdminSpecific: ${isAdminSpecific}).`);
+        // Display a fatal error message in the body
+        $('body').prepend(`<div class="alert alert-danger m-3"><strong>Fatal Error:</strong> Application render target missing. UI cannot be updated.</div>`);
+        return;
+    }
+
+    // Apply the HTML content and add fade-in animation class
+    $targetContainer.html(contentHtml).addClass('fade-in');
+
+    // Remove the fade-in class after the animation duration to allow future animations
+    setTimeout(() => $targetContainer.removeClass('fade-in'), 550); // Match animation duration
+
+    // Re-apply translations to static elements with data-translate attributes *after* render
+    $('[data-translate]').each(function() {
+        const key = $(this).data('translate');
+        $(this).text(t(key));
+    });
+    $('[data-translate-placeholder]').each(function() {
+        const key = $(this).data('translate-placeholder');
+        $(this).attr('placeholder', t(key));
+    });
+     $('[data-translate-title]').each(function() {
+        const key = $(this).data('translate-title');
+        $(this).attr('title', t(key));
+    });
+
+     // Explicitly update page title if needed (optional)
+     // const pageTitleKey = $targetContainer.find('[data-page-title-key]').data('page-title-key');
+     // if (pageTitleKey) {
+     //    document.title = t(pageTitleKey) + " | " + t('appName');
+     // }
+}
+
+
+// --- Temporary Message Renderer ---
+export function renderTemporaryMessage(messageOrKey, type = 'info', variables = {}) {
+     const message = t(messageOrKey, variables); // Translate the message key
+     // Create a Bootstrap alert structure
+     const alertHtml = `
+        <div class="container py-5">
+            <div class="alert alert-${type} text-center shadow-sm" role="alert">
+                ${message}
+            </div>
+        </div>`;
+     // Render this message in the main content area
+     render(alertHtml, false);
+     // Ensure admin sidebar is hidden when showing temporary messages
+     toggleAdminSidebar(false);
+}
+
+// --- Role-Based Dashboard Dispatcher ---
+export function renderDashboardPage() {
+    const userRole = auth.getCurrentUserRole();
+    console.log(`[View] Rendering dashboard for role: ${userRole}`);
+    // Redirect or render based on role
+    if (userRole === 'admin') {
+        // window.location.hash = '#admin-dashboard'; // Direct hash change
+        renderAdminDashboard(); // Render directly
+    } else if (userRole === 'provider') {
+        renderProviderDashboardView();
+    } else if (userRole === 'client') {
+        renderClientDashboardView();
+    } else {
+        // If no role (or unexpected role), redirect to login
+        console.warn("[View] No valid role for dashboard or user not logged in. Redirecting to login.");
+        window.location.hash = '#login'; // Use hash change for redirection
+    }
+}
+
+// --- Specific View Rendering Functions ---
+
+// Provider Dashboard
+function renderProviderDashboardView() {
+    const currentUser = auth.getCurrentUser();
+    // Ensure user is a provider
+    if (!currentUser || currentUser.role !== 'provider') {
+        console.warn("[View] Attempted to render provider dashboard for non-provider.");
+        window.location.hash = '#login'; // Redirect if not provider
+        return;
+    }
+    // Fetch provider-specific data
+    const providerCourses = store.getCoursesByProvider(currentUser.id);
+    const totalEnrollments = providerCourses.reduce((sum, c) => sum + (Array.isArray(c?.enrolledStudentIds) ? c.enrolledStudentIds.length : 0), 0);
+
+    // Generate HTML content using template literals and translation function `t()`
+    const contentHtml = `
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-1 pb-2 mb-3 border-bottom">
+            <h1 class="h2">${t('dashboardProviderTitle')}</h1>
+            <a href="#create-course" class="btn btn-sm btn-success">
+                <i class="bi bi-plus-lg me-1"></i>${t('dashboardProviderCreateButton')}
+            </a>
+        </div>
+        <p class="lead text-muted mb-4">${t('dashboardProviderWelcome', { username: currentUser.username })}</p>
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card text-center h-100 shadow-sm border-start border-5 border-info">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center py-4">
+                        <div class="display-4 text-info mb-3"><i class="bi bi-journal-bookmark-fill"></i></div>
+                        <h5 class="card-title mb-2">${t('dashboardProviderCoursesCardTitle')}</h5>
+                        <p class="card-text display-3 fw-bold mb-3">${providerCourses.length}</p>
+                        <a href="#my-courses" class="btn btn-outline-info mt-auto">
+                            <i class="bi bi-pencil-square me-1"></i> ${t('dashboardProviderManageCoursesButton')}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card text-center h-100 shadow-sm border-start border-5 border-success">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center py-4">
+                        <div class="display-4 text-success mb-3"><i class="bi bi-people-fill"></i></div>
+                        <h5 class="card-title mb-2">${t('dashboardProviderEnrollmentsCardTitle')}</h5>
+                        <p class="card-text display-3 fw-bold mb-3">${totalEnrollments}</p>
+                        <a href="#my-courses" class="btn btn-outline-success mt-auto">
+                            <i class="bi bi-eye me-1"></i> ${t('dashboardProviderViewDetailsButton')}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    // Render the generated HTML into the main content area
+    render(contentHtml, false); // false indicates it's not admin-specific content
+}
+
+// Client Dashboard
+function renderClientDashboardView() {
+    const currentUser = auth.getCurrentUser();
+    // Ensure user is a client
+    if (!currentUser || currentUser.role !== 'client') {
+        console.warn("[View] Attempted to render client dashboard for non-client.");
+        window.location.hash = '#login'; // Redirect if not client
+        return;
+    }
+
+    // --- Notification Logic ---
+    const enrolledCourses = store.getCoursesEnrolledByStudent(currentUser.id);
+    const lastCheckTimeStr = store.getLastNotificationCheckTime();
+    const lastCheckTime = new Date(lastCheckTimeStr);
+    let notificationsHtml = '';
+    let hasNewNotifications = false;
+    console.log(`[Notifications] Last check time: ${lastCheckTimeStr}`);
+
+    enrolledCourses.forEach(course => {
+        if (!course || !Array.isArray(course.liveSessions)) return; // Skip if course or sessions invalid
+
+        course.liveSessions.forEach(session => {
+            // Check if session exists, has a scheduledAt time, and it's after the last check time
+            if (session && session.scheduledAt) {
+                 const scheduledAtDate = new Date(session.scheduledAt);
+                 if (!isNaN(scheduledAtDate.getTime()) && scheduledAtDate > lastCheckTime) {
+                     hasNewNotifications = true;
+                     const formattedDateTime = formatDateTime(session.dateTime); // Format session time
+                     const courseTitle = course.title || t('untitledCourse', {default: 'Untitled Course'});
+                     const sessionTitle = session.title || t('untitledSession', {default: 'Untitled Session'});
+
+                     // Generate notification item HTML
+                     notificationsHtml += `
+                         <li class="list-group-item list-group-item-action list-group-item-warning d-flex justify-content-between align-items-center animate-new-notification">
+                             <span class="me-2">
+                                 <i class="bi bi-calendar-event-fill me-2"></i>
+                                 ${t('dashboardClientNewSessionNotification', { courseTitle: courseTitle, sessionTitle: sessionTitle, dateTime: formattedDateTime })}
+                             </span>
+                             <a href="#course-detail/${course.id}" class="btn btn-sm btn-outline-primary ms-auto flex-shrink-0" title="${t('myCoursesDetailsButton')}">
+                                <i class="bi bi-box-arrow-up-right"></i>
+                             </a>
+                         </li>`;
+                 }
+            } else {
+                 console.warn(`[Notifications] Session in course ${course.id} is missing data or scheduledAt:`, session);
+            }
+        });
+    });
+
+     // Update the last notification check time *after* processing all courses
+     // Do this regardless of whether new notifications were found, to mark this check time.
+     store.updateLastNotificationCheckTime();
+     console.log(`[Notifications] Found new notifications: ${hasNewNotifications}`);
+
+
+    // --- Dashboard Content HTML ---
+    const contentHtml = `
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-1 pb-2 mb-3 border-bottom">
+            <h1 class="h2">${t('dashboardClientTitle')}</h1>
+            ${hasNewNotifications ? `<span class="badge bg-danger rounded-pill ms-2 animate-new-badge">${t('new', {default: 'New'})}</span>` : ''}
+        </div>
+        <p class="lead text-muted mb-4">${t('dashboardClientWelcome', { username: currentUser.username })}</p>
+
+        <!-- Notifications Section -->
+        ${hasNewNotifications ? `
+            <div class="card shadow-sm mb-4 border-start border-5 border-warning">
+                <div class="card-header bg-warning-subtle text-dark fw-semibold">
+                    <i class="bi bi-bell-fill me-1"></i> ${t('dashboardClientNotificationsTitle')}
+                </div>
+                <ul class="list-group list-group-flush">${notificationsHtml}</ul>
+            </div>
+        ` : `
+           <div class="alert alert-light border text-center mb-4">
+             ${t('dashboardClientNoNotifications')}
+           </div>
+        `}
+
+
+        <!-- Stats Cards Section -->
+        <div class="row g-4">
+            <div class="col-lg-6">
+                <div class="card text-center h-100 shadow-sm border-start border-5 border-primary">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center py-4">
+                        <div class="display-4 text-primary mb-3"><i class="bi bi-check-circle-fill"></i></div>
+                        <h5 class="card-title mb-2">${t('dashboardClientEnrolledCardTitle')}</h5>
+                        <p class="card-text display-3 fw-bold mb-3">${enrolledCourses.length}</p>
+                        <a href="#my-courses" class="btn btn-outline-primary mt-auto">
+                            <i class="bi bi-book me-1"></i> ${t('dashboardClientViewMyCoursesButton')}
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card text-center h-100 shadow-sm border-start border-5 border-accent">
+                    <div class="card-body d-flex flex-column justify-content-center align-items-center py-4">
+                        <div class="display-4 text-accent mb-3"><i class="bi bi-compass-fill"></i></div>
+                        <h5 class="card-title mb-2">${t('dashboardClientExploreCardTitle')}</h5>
+                        <p class="card-text text-muted mb-3">${t('dashboardClientExploreCardText')}</p>
+                        <a href="#browse-courses" class="btn btn-accent text-white mt-auto">
+                            <i class="bi bi-search me-1"></i> ${t('dashboardClientBrowseCoursesButton')}
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    // Render the generated HTML
+    render(contentHtml, false);
+}
+
+
+// Admin Dashboard
+export function renderAdminDashboard() {
+    console.log("[View] Rendering Admin Dashboard");
+    destroyAllCharts(); // Ensure previous charts are cleared
+
+    let userCounts, courseCount, totalRevenue, coursesPerProvider, enrollmentStats, priceStats, topCoursesData;
+    let statsLoaded = true;
+
+    try {
+        console.log("[View] Fetching admin statistics...");
+        userCounts = store.getUserCountsByRole();
+        courseCount = store.getTotalCourseCount();
+        totalRevenue = store.getSimulatedTotalRevenue();
+        coursesPerProvider = store.getCoursesPerProviderData();
+        enrollmentStats = store.getEnrollmentStats();
+        priceStats = store.getCoursePriceStats();
+        topCoursesData = store.getTopEnrolledCourses(5); // Get top 5
+
+        // Basic validation of fetched data
+        if (!userCounts || !priceStats || !enrollmentStats || !coursesPerProvider || !topCoursesData) {
+            throw new Error("One or more statistics datasets failed to load or returned invalid data.");
+        }
+        console.log("[View] Admin statistics fetched successfully:", { userCounts, courseCount, totalRevenue, coursesPerProvider, enrollmentStats, priceStats, topCoursesData });
+
+    } catch (error) {
+        console.error("[View] Error fetching admin stats:", error);
+        statsLoaded = false;
+        // Render an error message within the admin view area
+        render(`<div class="alert alert-danger m-4" role="alert">
+                    <h4><i class="bi bi-exclamation-triangle-fill"></i> ${t('errorLoadingData')}</h4>
+                    <p>${error.message}</p>
+                    <small>Check console for details.</small>
+                </div>`, true); // true indicates admin-specific render target
+        return; // Stop rendering if stats failed
+    }
+
+    // Proceed with rendering if stats loaded
+    const contentHtml = `
+    <div class="fade-in">
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h1 class="h2"><i class="bi bi-grid-1x2-fill me-2"></i>${t('dashboardAdminTitle')}</h1>
+        </div>
+
+        <!-- Stat Cards Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card stat-card-users shadow-sm">
+                    <div class="stat-icon"><i class="bi bi-people-fill"></i></div>
+                    <h5>${t('dashboardAdminCardUsersTitle')}</h5>
+                    <div class="stat-value">${userCounts.total}</div>
+                    <small>${t('dashboardAdminCardUsersSubtitle', { client: userCounts.client, provider: userCounts.provider, admin: userCounts.admin })}</small>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="stat-card stat-card-courses shadow-sm">
+                    <div class="stat-icon"><i class="bi bi-journal-bookmark-fill"></i></div>
+                    <h5>${t('dashboardAdminCardCoursesTitle')}</h5>
+                    <div class="stat-value">${courseCount}</div>
+                    <small>${t('dashboardAdminCardCoursesSubtitle', { free: priceStats.freeCount, paid: priceStats.paidCount, percentFree: priceStats.percentFree.toFixed(1) })}</small>
+                </div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                 <div class="stat-card stat-card-revenue shadow-sm">
+                     <div class="stat-icon"><i class="bi bi-cash-coin"></i></div>
+                     <h5>${t('dashboardAdminCardRevenueTitle')}</h5>
+                     <div class="stat-value">$${(typeof totalRevenue === 'number' ? totalRevenue.toFixed(2) : 'N/A')}</div>
+                     <small>${t('dashboardAdminCardRevenueSubtitle')}</small>
+                 </div>
+             </div>
+             <div class="col-xl-3 col-md-6">
+                 <div class="stat-card shadow-sm" style="background: linear-gradient(135deg, #0dcaf0, #5bc0de);">
+                     <div class="stat-icon"><i class="bi bi-person-check-fill"></i></div>
+                     <h5>${t('dashboardAdminCardEnrollmentsTitle')}</h5>
+                     <div class="stat-value">${enrollmentStats.totalEnrollments}</div>
+                     <small>${t('dashboardAdminCardEnrollmentsSubtitle', { avg: enrollmentStats.averageEnrollments.toFixed(1) })}</small>
+                 </div>
+             </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row g-4">
+             <div class="col-lg-4">
+                 <div class="card shadow-sm mb-4 h-100">
+                     <div class="card-header"><i class="bi bi-graph-up me-2"></i>${t('dashboardAdminQuickStatsTitle')}</div>
+                     <div class="card-body">
+                         <ul class="list-group list-group-flush">
+                             <li class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                                 ${t('dashboardAdminStatAvgPrice')}
+                                 <span class="badge bg-success-subtle text-success-emphasis rounded-pill fs-6">$${priceStats.averagePrice.toFixed(2)}</span>
+                             </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                                 ${t('dashboardAdminStatPercentFree')}
+                                 <span class="badge bg-primary-subtle text-primary-emphasis rounded-pill fs-6">${priceStats.percentFree.toFixed(1)}%</span>
+                             </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                                 ${t('dashboardAdminStatAvgEnroll')}
+                                 <span class="badge bg-info-subtle text-info-emphasis rounded-pill fs-6">${enrollmentStats.averageEnrollments.toFixed(1)}</span>
+                             </li>
+                             <li class="list-group-item d-flex justify-content-between align-items-center px-0 border-0">
+                                 ${t('dashboardAdminStatProviders')}
+                                 <span class="badge bg-secondary-subtle text-secondary-emphasis rounded-pill fs-6">${userCounts.provider}</span>
+                             </li>
+                         </ul>
+                     </div>
+                 </div>
+             </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm mb-4 h-100">
+                    <div class="card-header">${t('dashboardAdminChartUserRoleTitle')}</div>
+                    <div class="card-body d-flex justify-content-center align-items-center">
+                        <div class="chart-container" style="height: 260px; max-width: 320px;">
+                            <canvas id="userRoleChart"></canvas> <!-- Canvas for Chart.js -->
+                         </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-4">
+                <div class="card shadow-sm mb-4 h-100">
+                    <div class="card-header">${t('dashboardAdminChartTopCoursesTitle', { count: topCoursesData.labels.length })}</div>
+                    <div class="card-body">
+                        <div class="chart-container" style="height: 260px;">
+                            <canvas id="topCoursesChart"></canvas> <!-- Canvas for Chart.js -->
+                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full Width Chart Row -->
+        <div class="row g-4 mt-1">
+             <div class="col-lg-12">
+                 <div class="card shadow-sm">
+                     <div class="card-header">${t('dashboardAdminChartCoursesPerProviderTitle')}</div>
+                     <div class="card-body">
+                         <div class="chart-container" style="height: 50vh; min-height: 350px; max-height: 600px;">
+                            <canvas id="coursesPerProviderChart"></canvas> <!-- Canvas for Chart.js -->
+                         </div>
+                     </div>
+                 </div>
+             </div>
+         </div>
+    </div>`;
+
+    render(contentHtml, true); // Render into admin area
+
+    // Initialize charts AFTER the DOM is updated
+    // Use requestAnimationFrame and setTimeout for robustness
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            // Check if we are still on the admin dashboard page before initializing
+            if (window.location.hash === '#admin-dashboard') {
+                initializeAdminCharts(userCounts, coursesPerProvider, topCoursesData);
+            } else {
+                 console.log("[View] Hash changed before charts could initialize. Skipping chart init.");
+            }
+        }, 50); // Small delay to ensure DOM is fully ready
+    });
+}
+
+// Helper function to render "No Data" message on a canvas
+function renderNoData(canvasId, message) {
+    const canvas = document.getElementById(canvasId);
+    if (canvas && canvas.getContext) {
+        const ctx = canvas.getContext('2d');
+        // Clear previous content
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Style and draw text
+        ctx.save(); // Save context state
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#6c757d'; // Bootstrap text-muted color
+        ctx.font = '16px "Poppins", sans-serif'; // Match body font
+        // Adjust position based on canvas size (may need refinement)
+        ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+        ctx.restore(); // Restore context state
+        console.log(`[Chart] Rendered '${message}' on canvas #${canvasId}`);
+    } else {
+        console.warn(`[Chart] Canvas element #${canvasId} not found for rendering no data message.`);
+    }
+}
+
+
+// Chart Initialization Function (Admin Dashboard)
+function initializeAdminCharts(userCounts, coursesPerProvider, topCourses) {
+    console.log("[Charts] Initializing Admin Dashboard charts...");
+
+    // Check if Chart.js library is loaded
+    if (typeof Chart === 'undefined') {
+        console.error("[Charts] FATAL: Chart.js library is not loaded! Cannot initialize charts.");
+        // Optionally display an error message in the chart containers
+        renderNoData('userRoleChart', 'Chart library failed to load.');
+        renderNoData('topCoursesChart', 'Chart library failed to load.');
+        renderNoData('coursesPerProviderChart', 'Chart library failed to load.');
+        return;
+    }
+
+    const noDataText = t('dashboardAdminNoData') || 'No data available';
+
+    // --- User Role Doughnut Chart ---
+    const userRoleCtx = document.getElementById('userRoleChart');
+    destroyChart('userRoleChart'); // Destroy previous instance if exists
+    if (userRoleCtx && userCounts && userCounts.total > 0) {
+        try {
+            activeCharts['userRoleChart'] = new Chart(userRoleCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: [t('roleClient'), t('roleProvider'), t('roleAdmin')],
+                    datasets: [{
+                        label: t('userRole'), // Translated label
+                        data: [userCounts.client || 0, userCounts.provider || 0, userCounts.admin || 0], // Ensure data exists
+                        backgroundColor: [
+                            'rgba(var(--bs-primary-rgb), 0.7)',
+                            'rgba(var(--app-secondary-rgb), 0.7)', // Use custom secondary
+                            'rgba(108, 117, 125, 0.7)' // Bootstrap gray
+                        ],
+                        borderColor: '#fff',
+                        borderWidth: 2,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { padding: 15, usePointStyle: true }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${ctx.label}: ${ctx.parsed}` // Simple label format
+                            }
+                        }
+                    },
+                    cutout: '60%' // Make it a doughnut
+                }
+            });
+             console.log("[Chart] User Role Chart initialized.");
+        } catch (e) {
+            console.error("[Charts] Error initializing User Role Chart:", e);
+            renderNoData('userRoleChart', 'Error loading chart data.');
+        }
+    } else if (userRoleCtx) {
+        renderNoData('userRoleChart', noDataText); // Render no data message if context exists but no data
+    }
+
+    // --- Top Enrolled Courses Bar Chart ---
+    const topCoursesCtx = document.getElementById('topCoursesChart');
+     destroyChart('topCoursesChart'); // Destroy previous instance
+    if (topCoursesCtx && topCourses && topCourses.labels && topCourses.labels.length > 0) {
+         try {
+            activeCharts['topCoursesChart'] = new Chart(topCoursesCtx, {
+                type: 'bar',
+                data: {
+                    // Truncate long labels for better display
+                    labels: topCourses.labels.map(l => (l.length > 25 ? l.substring(0, 22) + '...' : l)),
+                    datasets: [{
+                        label: t('dashboardAdminCardEnrollmentsTitle'), // Translated label
+                        data: topCourses.data,
+                        backgroundColor: 'rgba(var(--bs-info-rgb), 0.6)',
+                        borderColor: 'rgba(var(--bs-info-rgb), 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderSkipped: false // Ensure border radius applies nicely
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }, // Integer ticks for enrollments
+                        x: { ticks: { display: true, autoSkip: true, maxRotation: 0 } } // Auto skip labels if too many
+                    },
+                    plugins: {
+                        legend: { display: false }, // Hide legend for single dataset bar chart
+                        tooltip: {
+                            callbacks: {
+                                // Show full title in tooltip if truncated
+                                title: (tooltipItems) => topCourses.labels[tooltipItems[0].dataIndex],
+                                label: ctx => ` ${t('dashboardAdminCardEnrollmentsTitle')}: ${ctx.parsed.y}`
+                            }
+                        }
+                    }
+                }
+            });
+            console.log("[Chart] Top Courses Chart initialized.");
+        } catch (e) {
+            console.error("[Charts] Error initializing Top Courses Chart:", e);
+             renderNoData('topCoursesChart', 'Error loading chart data.');
+        }
+    } else if (topCoursesCtx) {
+        renderNoData('topCoursesChart', noDataText);
+    }
+
+    // --- Courses Per Provider Horizontal Bar Chart ---
+    const cppCtx = document.getElementById('coursesPerProviderChart');
+    destroyChart('coursesPerProviderChart'); // Destroy previous instance
+    if (cppCtx && coursesPerProvider && coursesPerProvider.labels && coursesPerProvider.labels.length > 0) {
+        try {
+            activeCharts['coursesPerProviderChart'] = new Chart(cppCtx, {
+                type: 'bar', // Use bar type
+                data: {
+                    labels: coursesPerProvider.labels,
+                    datasets: [{
+                        label: `# ${t('dashboardAdminCardCoursesTitle')}`, // Translated label
+                        data: coursesPerProvider.data,
+                        backgroundColor: 'rgba(var(--app-secondary-rgb), 0.6)', // Use custom secondary color
+                        borderColor: 'rgba(var(--app-secondary-rgb), 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderSkipped: false
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // Make it a horizontal bar chart
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { beginAtZero: true, ticks: { precision: 0 } }, // Integer ticks for course count
+                        y: { ticks: { autoSkip: false, padding: 5 } } // Don't auto-skip provider names usually
+                    },
+                    plugins: {
+                        legend: { display: false }, // Hide legend
+                        tooltip: {
+                            callbacks: {
+                                label: ctx => ` ${t('dashboardAdminCardCoursesTitle')}: ${ctx.parsed.x}` // Use x-axis value for horizontal bar
+                            }
+                        }
+                    }
+                }
+            });
+             console.log("[Chart] Courses Per Provider Chart initialized.");
+        } catch (e) {
+            console.error("[Charts] Error initializing Courses Per Provider Chart:", e);
+            renderNoData('coursesPerProviderChart', 'Error loading chart data.');
+        }
+    } else if (cppCtx) {
+        renderNoData('coursesPerProviderChart', noDataText);
+    }
+
+    console.log("[Charts] --- Admin Chart Initialization Complete ---");
+}
+
+
+// Admin User Management Page
+export function renderAdminUsersPage() {
+    const users = store.getUsers(); // Fetch users from store
+
+    // Map user data to table rows
+    const userRowsHtml = users.map(user => {
+        if (!user) return ''; // Skip if user data is somehow null/undefined
+
+        // Determine badge class based on role
+        let roleBadgeClass = 'bg-secondary'; // Default
+        let roleTextClass = ''; // Default text color class
+        const roleKey = `role${user.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Unknown'}`; // Translation key
+        switch(user.role) {
+            case 'admin':    roleBadgeClass = 'bg-danger'; break;
+            case 'provider': roleBadgeClass = 'bg-info'; roleTextClass = 'text-dark'; break; // Dark text on light info bg
+            case 'client':   roleBadgeClass = 'bg-primary'; break;
+            default:         roleBadgeClass = 'bg-warning'; roleTextClass = 'text-dark'; break; // Unknown role
+        }
+
+        const joinedDate = user.createdAt ? formatDateTime(user.createdAt) : t('notAvailable', {default: 'N/A'}); // Format join date
+
+        // Generate table row HTML
+        return `
+            <tr>
+                <td class="text-muted small"><code class="user-id">${user.id || 'N/A'}</code></td>
+                <td><i class="bi bi-person-fill text-muted opacity-75"></i> ${user.username || t('notAvailable', {default: 'N/A'})}</td>
+                <td>
+                    <span class="badge rounded-pill ${roleBadgeClass} ${roleTextClass} text-capitalize px-3 py-1 fs-7">
+                        ${t(roleKey, { default: user.role || 'Unknown' })}
+                    </span>
+                </td>
+                <td>${joinedDate}</td>
+                <td>
+                    <!-- Action buttons (currently disabled) -->
+                    <button class="btn btn-sm btn-outline-secondary disabled me-1" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                        <i class="bi bi-pencil-square"></i> <span class="d-none d-md-inline">${t('courseDetailEditButton')}</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger disabled" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                        <i class="bi bi-trash"></i> <span class="d-none d-md-inline">${t('courseDetailDeleteButton')}</span>
+                    </button>
+                </td>
+            </tr>`;
+    }).join(''); // Join the array of rows into a single string
+
+    // Construct the full page HTML
+    const contentHtml = `
+    <div class="fade-in">
+        <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h1 class="h2"><i class="bi bi-people-fill me-2"></i>${t('adminUsersTitle')}</h1>
+            <button class="btn btn-sm btn-primary disabled" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                <i class="bi bi-plus-circle me-1"></i> ${t('adminUsersAddButton')}
+            </button>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <span>${t('adminUsersListTitle')}</span>
+                <span class="badge bg-light text-dark rounded-pill ms-auto">${t('adminUsersTotal', { count: users.length })}</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped table-vcenter mb-0"> <!-- Removed table-borderless for clarity -->
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">${t('adminUsersHeaderId')}</th>
+                            <th>${t('adminUsersHeaderUsername')}</th>
+                            <th>${t('adminUsersHeaderRole')}</th>
+                            <th>${t('adminUsersHeaderJoined')}</th>
+                            <th>${t('adminUsersHeaderActions')}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${users.length > 0 ? userRowsHtml : `<tr><td colspan="5" class="text-center text-muted p-4">${t('adminUsersNoUsers')}</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+            ${users.length > 20 ? `<div class="card-footer text-muted small text-center">(${t('paginationNotAvailable', {default: 'Pagination N/A'})})</div>` : ''}
+        </div>
+    </div>`;
+
+    render(contentHtml, true); // Render as admin-specific content
+}
+
+// Admin Course Management Page
+export function renderAdminCoursesPage() {
+    const courses = store.getCourses(); // Fetch courses from store
+
+    // Map course data to table rows
+    const courseRowsHtml = courses.map(course => {
+        if (!course) return ''; // Skip if course data is null/undefined
+
+        const provider = store.findUserById(course.providerId); // Find provider details
+        const enrollmentCount = Array.isArray(course.enrolledStudentIds) ? course.enrolledStudentIds.length : 0; // Safely get count
+        const price = parseFloat(course.price);
+        const priceFormatted = (isNaN(price) || price <= 0) ? t('browseCoursesPriceFree') : `$${price.toFixed(2)}`;
+        const priceClass = (isNaN(price) || price <= 0) ? 'text-primary fw-semibold' : 'text-success fw-bold';
+        const createdDate = course.createdAt ? formatDateTime(course.createdAt) : t('notAvailable', {default: 'N/A'}); // Format creation date
+
+        // Generate table row HTML
+        return `
+            <tr>
+                <td class="text-muted small"><code class="course-id">${course.id || 'N/A'}</code></td>
+                <td>${course.title || t('untitledCourse', {default: 'Untitled Course'})}</td>
+                <td>
+                    ${provider ? provider.username : `<span class="text-muted fst-italic">${t('unknownProvider', {default: 'Unknown'})}</span>`}
+                    ${provider ? `<code class="ms-1 small provider-id">(${provider.id})</code>` : ''}
+                </td>
+                <td class="text-end fw-bold ${priceClass}">${priceFormatted}</td>
+                <td class="text-center">${enrollmentCount}</td>
+                <td>${createdDate}</td>
+                <td>
+                    <!-- Action Buttons -->
+                    <a href="#course-detail/${course.id}" class="btn btn-sm btn-outline-primary me-1" title="${t('myCoursesDetailsButton')}">
+                        <i class="bi bi-eye"></i> <span class="d-none d-lg-inline">${t('viewAction', {default: 'View'})}</span>
+                    </a>
+                    <button class="btn btn-sm btn-outline-secondary disabled me-1" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                        <i class="bi bi-pencil-square"></i> <span class="d-none d-lg-inline">${t('courseDetailEditButton')}</span>
+                    </button>
+                     <!-- Admin Delete Button - uses the same class as provider delete -->
+                     <button class="btn btn-sm btn-outline-danger delete-course-button" data-course-id="${course.id}" title="${t('courseDetailDeleteButton')}">
+                         <i class="bi bi-trash"></i> <span class="d-none d-lg-inline">${t('courseDetailDeleteButton')}</span>
+                     </button>
+                </td>
+            </tr>`;
+    }).join(''); // Join the array of rows
+
+    // Construct the full page HTML
+    const contentHtml = `
+    <div class="fade-in">
+        <div class="d-flex justify-content-between align-items-center pt-3 pb-2 mb-3 border-bottom">
+            <h1 class="h2"><i class="bi bi-journal-bookmark-fill me-2"></i>${t('adminCoursesTitle')}</h1>
+            <button class="btn btn-sm btn-success disabled" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                <i class="bi bi-plus-circle me-1"></i> ${t('adminCoursesAddButton')}
+            </button>
+        </div>
+
+        <div class="card shadow-sm">
+             <div class="card-header">
+                 <span>${t('adminCoursesListTitle')}</span>
+                 <span class="badge bg-light text-dark rounded-pill ms-auto">${t('adminCoursesTotal', { count: courses.length })}</span>
+             </div>
+            <div class="table-responsive">
+                <table class="table table-hover table-striped table-vcenter mb-0"> <!-- Removed table-borderless -->
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-3">${t('adminCoursesHeaderId')}</th>
+                            <th>${t('adminCoursesHeaderTitle')}</th>
+                            <th>${t('adminCoursesHeaderProvider')}</th>
+                            <th class="text-end">${t('adminCoursesHeaderPrice')}</th>
+                            <th class="text-center">${t('adminCoursesHeaderEnrollments')}</th>
+                            <th>${t('adminCoursesHeaderCreated')}</th>
+                            <th>${t('adminCoursesHeaderActions')}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${courses.length > 0 ? courseRowsHtml : `<tr><td colspan="7" class="text-center text-muted p-4">${t('adminCoursesNoCourses')}</td></tr>`}
+                    </tbody>
+                </table>
+            </div>
+             ${courses.length > 20 ? `<div class="card-footer text-muted small text-center">(${t('paginationNotAvailable', {default: 'Pagination N/A'})})</div>` : ''}
+        </div>
+    </div>`;
+
+    render(contentHtml, true); // Render as admin-specific content
+}
+
+
+// --- General Pages ---
+
+// Home Page
+export function renderHomePage() {
+    const currentUser = auth.getCurrentUser();
+    let welcomeHtml = '', ctaHtml = '';
+
+    if (currentUser) {
+        // Logged-in user view
+        welcomeHtml = `
+            <h1 class="display-5 fw-bold">${t('welcomeBack')} ${currentUser.username}!</h1>
+            <p class="lead text-muted">${t('homePromptLoggedIn')}</p>`; // Removed default, rely on translation
+        // Role-specific CTAs
+        if (currentUser.role === 'client') {
+            ctaHtml = `
+                <a href="#browse-courses" class="btn btn-primary btn-lg me-sm-2 mb-2 mb-sm-0">
+                    <i class="bi bi-compass me-1"></i> ${t('navBrowseCourses')}
+                </a>
+                <a href="#my-courses" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-bookmark-check me-1"></i> ${t('navMyCourses')}
+                </a>`;
+        } else if (currentUser.role === 'provider') {
+            ctaHtml = `
+                <a href="#create-course" class="btn btn-success btn-lg me-sm-2 mb-2 mb-sm-0">
+                    <i class="bi bi-plus-circle me-1"></i> ${t('navCreateCourse')}
+                </a>
+                <a href="#my-courses" class="btn btn-outline-secondary btn-lg">
+                    <i class="bi bi-journal-richtext me-1"></i> ${t('dashboardProviderManageCoursesButton')}
+                </a>`;
+        } else if (currentUser.role === 'admin') {
+            ctaHtml = `
+                <a href="#admin-dashboard" class="btn btn-secondary btn-lg">
+                    <i class="bi bi-shield-lock me-1"></i> ${t('navAdminPanel')}
+                </a>`;
+        }
+    } else {
+        // Logged-out user view
+        welcomeHtml = `
+            <h1 class="display-4 fw-bold">${t('homeTitleLoggedOut')}</h1>
+            <p class="lead text-muted col-lg-8 mx-auto">${t('homeSubtitleLoggedOut')}</p>`;
+        ctaHtml = `
+            <a href="#browse-courses" class="btn btn-primary btn-lg me-sm-2 mb-2 mb-sm-0">
+                <i class="bi bi-search me-1"></i> ${t('navBrowseCourses')}
+            </a>
+            <a href="#register" class="btn btn-accent btn-lg text-white">
+                <i class="bi bi-person-plus-fill me-1"></i> ${t('navRegister')}
+            </a>`;
+    }
+
+    // Assemble the final HTML
+    const contentHtml = `
+        <div class="container py-5">
+             <div class="text-center px-4 py-5 mb-4 bg-white rounded-3 shadow-lg fade-in border-top border-5 border-primary">
+                 ${welcomeHtml}
+                 <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mt-4 pt-2">
+                     ${ctaHtml}
+                 </div>
+             </div>
+         </div>`;
+
+    render(contentHtml, false); // Render as general content
+}
+
+// Login Page
+export function renderLoginPage() {
+     // Redirect if already logged in
+     if (auth.isLoggedIn()) {
+        console.log("[View] User already logged in, redirecting to dashboard.");
+        window.location.hash = '#dashboard';
+        return;
+     }
+     // Use template literals and translation keys
+     const contentHtml = `
+        <div class="container pt-5 pb-4">
+            <div class="row justify-content-center fade-in">
+                <div class="col-md-7 col-lg-5 col-xl-4">
+                    <div class="card shadow-lg border-0 rounded-3 mt-4">
+                        <div class="card-body p-4 p-lg-5">
+                            <div class="text-center mb-4">
+                                <a href="#home"><i class="bi bi-mortarboard-fill display-3 text-primary"></i></a>
+                                <h2 class="card-title mt-3 fw-bold">${t('welcomeBack')}</h2>
+                                <p class="text-muted">${t('loginPrompt')}</p>
+                            </div>
+                            <form id="login-form" novalidate>
+                                <!-- Alert placeholder -->
+                                <div id="login-alert" class="alert d-none mb-3" role="alert"></div>
+                                <!-- Username -->
+                                <div class="form-floating mb-3">
+                                    <input type="text" class="form-control" id="login-username" name="username" placeholder="${t('loginUsernameLabel')}" required autocomplete="username">
+                                    <label for="login-username">${t('loginUsernameLabel')}</label>
+                                </div>
+                                <!-- Password -->
+                                <div class="form-floating mb-4">
+                                    <input type="password" class="form-control" id="login-password" name="password" placeholder="${t('loginPasswordLabel')}" required autocomplete="current-password">
+                                    <label for="login-password">${t('loginPasswordLabel')}</label>
+                                </div>
+                                <!-- Submit Button -->
+                                <div class="d-grid mb-3">
+                                    <button type="submit" class="btn btn-primary btn-lg">
+                                        <i class="bi bi-box-arrow-in-right"></i> ${t('loginButton')}
+                                    </button>
+                                </div>
+                            </form>
+                            <p class="mt-4 text-center text-muted small mb-0">
+                                ${t('loginNoAccount')} <a href="#register" class="fw-medium link-primary">${t('loginSignUpLink')}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    render(contentHtml, false); // Render as general content
+}
+
+// Registration Page
+export function renderRegisterPage() {
+     // Redirect if already logged in
+      if (auth.isLoggedIn()) {
+         console.log("[View] User already logged in, redirecting to dashboard.");
+         window.location.hash = '#dashboard';
+         return;
+      }
+    // Use template literals and translation keys
+    const contentHtml = `
+        <div class="container pt-5 pb-4">
+            <div class="row justify-content-center fade-in">
+                <div class="col-md-9 col-lg-7 col-xl-6">
+                    <div class="card shadow-lg border-0 rounded-3 mt-4">
+                        <div class="card-body p-4 p-lg-5">
+                            <div class="text-center mb-4">
+                                <a href="#home"><i class="bi bi-person-plus-fill display-3 text-accent"></i></a>
+                                <h2 class="card-title mt-3 fw-bold">${t('registerTitle')}</h2>
+                                <p class="text-muted">${t('registerPrompt')}</p>
+                            </div>
+                            <form id="register-form" novalidate>
+                                <!-- Alert placeholder -->
+                                <div id="register-alert" class="alert d-none mb-3" role="alert"></div>
+                                <!-- Username -->
+                                <div class="form-floating mb-3">
+                                    <input type="text" class="form-control" id="register-username" placeholder="${t('registerUsernameLabel')}" required minlength="3">
+                                    <label for="register-username">${t('registerUsernameLabel')}</label>
+                                    <div class="form-text small px-2 text-muted">${t('registerUsernameHint')}</div>
+                                </div>
+                                <!-- Password Fields Row -->
+                                <div class="row g-2 mb-3">
+                                    <div class="col-md-6">
+                                        <div class="form-floating">
+                                            <input type="password" class="form-control" id="register-password" placeholder="${t('registerPasswordLabel')}" required minlength="6">
+                                            <label for="register-password">${t('registerPasswordLabel')}</label>
+                                        </div>
+                                        <div class="form-text small px-2 text-muted">${t('registerPasswordHint')}</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-floating">
+                                            <input type="password" class="form-control" id="register-confirm-password" placeholder="${t('registerConfirmPasswordLabel')}" required minlength="6">
+                                            <label for="register-confirm-password">${t('registerConfirmPasswordLabel')}</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- Role Select -->
+                                <div class="form-floating mb-3">
+                                    <select class="form-select" id="register-role" required>
+                                        <option value="" selected disabled>${t('registerRoleSelectDefault')}</option>
+                                        <option value="client">${t('roleClient')}</option>
+                                        <option value="provider">${t('roleProvider')}</option>
+                                        <option value="admin">${t('registerRoleAdminOption')}</option>
+                                    </select>
+                                    <label for="register-role">${t('registerRoleLabel')}</label>
+                                </div>
+                                <!-- Admin Code Field (Initially Hidden) -->
+                                <div class="form-floating mb-4" id="admin-code-group" style="display: none;">
+                                    <input type="password" class="form-control" id="register-admin-code" placeholder="${t('registerAdminCodeLabel')}">
+                                    <label for="register-admin-code">${t('registerAdminCodeLabel')}</label>
+                                </div>
+                                <!-- Submit Button -->
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-accent btn-lg text-white">
+                                        <i class="bi bi-check-circle-fill"></i> ${t('registerButton')}
+                                    </button>
+                                </div>
+                            </form>
+                            <p class="mt-4 text-center text-muted small mb-0">
+                                ${t('registerHaveAccount')} <a href="#login" class="fw-medium link-primary">${t('registerLoginLink')}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    render(contentHtml, false); // Render as general content
+    // Set up the dynamic visibility of the admin code field after rendering
+    setupDynamicFormFields();
+}
+
+// Helper for Register Page - Show/Hide Admin Code Field
+function setupDynamicFormFields() {
+    const roleSelect = document.getElementById('register-role');
+    const adminCodeGroup = document.getElementById('admin-code-group');
+    const adminCodeInput = document.getElementById('register-admin-code');
+
+    if (!roleSelect || !adminCodeGroup || !adminCodeInput) {
+        console.warn("[View] Registration form dynamic fields not found. Admin code toggle might not work.");
+        return;
+    }
+
+    const toggleAdminField = () => {
+        if (roleSelect.value === 'admin') {
+            adminCodeGroup.style.display = 'block'; // Show the field
+            adminCodeInput.required = true; // Make it required
+        } else {
+            adminCodeGroup.style.display = 'none'; // Hide the field
+            adminCodeInput.required = false; // Make it not required
+            adminCodeInput.value = ''; // Clear the value if role changes
+        }
+    };
+
+    // Initial check in case the form is pre-filled or reloaded
+    toggleAdminField();
+    // Add event listener for changes
+    roleSelect.addEventListener('change', toggleAdminField);
+}
+
+// Create Course Page
+export function renderCreateCoursePage() {
+    const currentUser = auth.getCurrentUser();
+    // Protect the route: only providers can access
+    if (!currentUser || currentUser.role !== 'provider') {
+        console.warn("[View] Non-provider attempted to access create course page.");
+        renderTemporaryMessage('alertTempProviderRequired', 'warning'); // Show warning
+        setTimeout(() => { window.location.hash = '#dashboard'; }, 2500); // Redirect after delay
+        return;
+    }
+    // Use template literals and translation keys
+    const contentHtml = `
+        <div class="container pt-5 pb-4">
+            <div class="row justify-content-center fade-in">
+                <div class="col-md-10 col-lg-8">
+                    <div class="card shadow-sm border-0 rounded-3 mt-4">
+                        <div class="card-header bg-success-subtle text-success-emphasis border-0 pt-4 pb-3">
+                            <h2 class="card-title text-center mb-0 fw-bold">
+                                <i class="bi bi-plus-circle-fill me-2"></i>${t('createCourseTitle')}
+                            </h2>
+                        </div>
+                        <div class="card-body p-4 p-lg-5">
+                            <form id="create-course-form" novalidate>
+                                <!-- Alert placeholder -->
+                                <div id="course-alert" class="alert d-none mb-4" role="alert"></div>
+                                <!-- Course Title -->
+                                <div class="form-floating mb-3">
+                                    <input type="text" class="form-control" id="course-title" placeholder="${t('createCourseTitleLabel')}" required>
+                                    <label for="course-title">${t('createCourseTitleLabel')}</label>
+                                </div>
+                                <!-- Course Description -->
+                                <div class="form-floating mb-3">
+                                    <textarea class="form-control" id="course-description" placeholder="${t('createCourseDescLabel')}" style="height: 150px" required></textarea>
+                                    <label for="course-description">${t('createCourseDescLabel')}</label>
+                                    <div class="form-text px-2 text-muted">${t('createCourseDescHint')}</div>
+                                </div>
+                                <!-- Course Price -->
+                                <div class="form-floating mb-4">
+                                    <input type="number" class="form-control" id="course-price" step="0.01" min="0" required placeholder="${t('createCoursePriceLabel')}">
+                                    <label for="course-price">${t('createCoursePriceLabel')}</label>
+                                     <!-- Use innerHTML for hint that includes <strong> -->
+                                    <div class="form-text px-2 text-muted" dangerouslySetInnerHTML={{ __html: t('createCoursePriceHint') }}></div>
+                                </div>
+                                <!-- Action Buttons -->
+                                <div class="d-grid gap-2 d-sm-flex justify-content-sm-end">
+                                    <a href="#my-courses" class="btn btn-outline-secondary px-4">${t('createCourseCancelButton')}</a>
+                                    <button type="submit" class="btn btn-success btn-lg px-4">
+                                        <i class="bi bi-cloud-arrow-up-fill"></i> ${t('createCourseCreateButton')}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+    render(contentHtml, false); // Render as general content
+
+     // The dangerouslySetInnerHTML part above is React syntax. For plain JS/jQuery:
+     $('#create-course-price').siblings('.form-text').html(t('createCoursePriceHint'));
+
+}
+
+// Browse Courses Page
+export function renderBrowseCoursesPage() {
+     const allCourses = store.getCourses();
+     const currentUser = auth.getCurrentUser();
+     let coursesHtml = '';
+
+     // Check if courses data is valid
+     if (Array.isArray(allCourses) && allCourses.length > 0) {
+         coursesHtml = allCourses.map(course => {
+             // Skip if course data is invalid or missing ID
+             if (!course?.id || !course.title) return '';
+
+             const provider = store.findUserById(course.providerId);
+             const isEnrolled = currentUser?.role === 'client' && Array.isArray(course.enrolledStudentIds) && course.enrolledStudentIds.includes(currentUser.id);
+             const canEnroll = currentUser?.role === 'client' && !isEnrolled;
+             const isGuest = !currentUser;
+
+             const price = parseFloat(course.price);
+             const priceText = (isNaN(price) || price <= 0) ? t('browseCoursesPriceFree') : `$${price.toFixed(2)}`;
+             const priceClass = (isNaN(price) || price <= 0) ? 'free text-primary fw-semibold' : 'text-success fw-bold';
+
+             const courseIcon = getCourseIcon(course.title);
+             const shortDesc = course.description ? (course.description.length > 100 ? course.description.substring(0, 97) + '...' : course.description) : t('browseCoursesNoDesc');
+
+             // Determine action button based on user status
+             let actionBtn = '';
+             if (canEnroll) {
+                 actionBtn = `<button class="btn btn-primary btn-sm enroll-button w-100" data-course-id="${course.id}"><i class="bi bi-plus-circle me-1"></i>${t('browseCoursesEnrollButton')}</button>`;
+             } else if (isEnrolled) {
+                 actionBtn = `<span class="badge bg-success-subtle border border-success-subtle text-success-emphasis p-2 w-100"><i class="bi bi-check-circle-fill me-1"></i>${t('browseCoursesEnrolledBadge')}</span>`;
+             } else if (isGuest) {
+                 actionBtn = `<a href="#login" class="btn btn-outline-secondary btn-sm w-100"><i class="bi bi-box-arrow-in-right me-1"></i>${t('browseCoursesLoginButton')}</a>`;
+             } else {
+                 // Handle other roles (provider, admin) - maybe show nothing or a specific message
+                 actionBtn = `<span class="badge bg-light text-dark p-2 w-100">${t('browseCoursesProviderAdminView', {default: 'Provider/Admin View'})}</span>`;
+             }
+
+             // Return card HTML
+             return `
+                <div class="col-sm-6 col-lg-4 col-xl-3 mb-4 d-flex align-items-stretch">
+                    <div class="card course-card h-100 shadow-sm w-100 border-0">
+                        <div class="card-img-placeholder" title="${course.title || ''}">
+                            <i class="bi ${courseIcon}"></i>
+                        </div>
+                        <div class="card-body d-flex flex-column p-3">
+                            <h5 class="card-title mb-1 fw-medium">${course.title}</h5>
+                            <h6 class="card-subtitle mb-2 text-muted small">
+                                ${t('browseCoursesBy', { provider: provider?.username || t('unknownProvider', {default: 'Unknown'}) })}
+                            </h6>
+                            <p class="card-text description-preview flex-grow-1 small text-secondary">${shortDesc}</p>
+                            <div class="mt-auto pt-2">
+                                <p class="price mb-3 fs-5 ${priceClass}">${priceText}</p>
+                                <div class="d-flex justify-content-between gap-2">
+                                    <a href="#course-detail/${course.id}" class="btn btn-outline-primary btn-sm px-3 flex-shrink-0">${t('browseCoursesDetailsButton')}</a>
+                                    <div class="enroll-section flex-grow-1">${actionBtn}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+         }).join('');
+     } else {
+         // Message when no courses are available
+         coursesHtml = `
+            <div class="col-12">
+                <div class="alert alert-info text-center mt-4 shadow-sm">
+                    <i class="bi bi-info-circle me-2"></i> ${t('browseCoursesNoCourses')}
+                </div>
+            </div>`;
+     }
+
+     // Full page content
+     const contentHtml = `
+        <div class="container pt-4 pb-4">
+             <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+                 <h2 class="display-5 fw-light mb-0"><i class="bi bi-compass me-2 text-primary"></i>${t('browseCoursesTitle')}</h2>
+                 <!-- Add search/filter controls here later if needed -->
+             </div>
+             <!-- Global alert area for enrollment actions on this page -->
+             <div id="enroll-alert" class="alert d-none my-3 mx-0" role="alert"></div>
+             <div class="row fade-in">${coursesHtml}</div>
+         </div>`;
+     render(contentHtml, false); // Render as general content
+}
+
+// My Courses Page
+export function renderMyCoursesPage() {
+    const currentUser = auth.getCurrentUser();
+    // Redirect if not logged in
+    if (!currentUser) {
+        window.location.hash = '#login';
+        return;
+    }
+
+    let pageTitle = '', pageIcon = '', courses = [], emptyMsg = '', cardGenerator;
+
+    // Configure based on user role
+    if (currentUser.role === 'provider') {
+        pageTitle = t('myCoursesProviderTitle');
+        pageIcon = 'bi-journal-richtext'; // Icon for providers
+        courses = store.getCoursesByProvider(currentUser.id);
+        emptyMsg = `
+            <div class="col-12">
+                <div class="alert alert-light text-center border shadow-sm mt-4 p-4">
+                    <h4 class="alert-heading">${t('myCoursesProviderNoCoursesTitle')}</h4>
+                    <p>${t('myCoursesProviderNoCoursesText')}</p>
+                    <hr>
+                    <a href="#create-course" class="btn btn-success">
+                        <i class="bi bi-plus-circle me-1"></i>${t('myCoursesProviderNoCoursesButton')}
+                    </a>
+                </div>
+            </div>`;
+        // Card generator function for provider's courses
+        cardGenerator = (course) => {
+            if (!course) return '';
+            const enrollmentCount = course.enrolledStudentIds?.length || 0;
+            const price = parseFloat(course.price);
+            const priceText = (isNaN(price) || price <= 0) ? t('browseCoursesPriceFree') : `$${price.toFixed(2)}`;
+            const priceClass = (isNaN(price) || price <= 0) ? 'text-primary fw-semibold' : 'text-success fw-bold';
+            const icon = getCourseIcon(course.title);
+            const studentsKey = enrollmentCount === 1 ? 'myCoursesEnrolledStudents' : 'myCoursesEnrolledStudentsPlural';
+            return `
+                <div class="col-sm-6 col-lg-4 col-xl-3 mb-4 d-flex align-items-stretch">
+                    <div class="card course-card h-100 shadow-sm w-100 border-0">
+                        <div class="card-img-placeholder" title="${course.title || ''}"><i class="bi ${icon}"></i></div>
+                        <div class="card-body d-flex flex-column p-3">
+                            <h5 class="card-title fw-medium">${course.title}</h5>
+                            <p class="price mt-2 mb-1 fs-5 ${priceClass}">${priceText}</p>
+                            <p class="mb-3 small text-muted flex-grow-1">
+                                <i class="bi bi-people me-1"></i>${t(studentsKey, { count: enrollmentCount })}
+                            </p>
+                            <div class="mt-auto d-flex justify-content-between pt-2 border-top">
+                                <a href="#course-detail/${course.id}" class="btn btn-outline-primary btn-sm px-3" title="${t('myCoursesDetailsButton')}">
+                                    <i class="bi bi-search"></i> ${t('myCoursesDetailsButton')}
+                                </a>
+                                <button class="btn btn-outline-danger btn-sm delete-course-button" data-course-id="${course.id}" title="${t('myCoursesDeleteButton')}">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        };
+    } else { // Assume client role (or default view)
+        pageTitle = t('myCoursesClientTitle');
+        pageIcon = 'bi-bookmark-check-fill'; // Icon for clients
+        courses = store.getCoursesEnrolledByStudent(currentUser.id);
+        emptyMsg = `
+            <div class="col-12">
+                <div class="alert alert-light text-center border shadow-sm mt-4 p-4">
+                    <h4 class="alert-heading">${t('myCoursesClientNoCoursesTitle')}</h4>
+                    <p>${t('myCoursesClientNoCoursesText')}</p>
+                    <hr>
+                    <a href="#browse-courses" class="btn btn-primary">
+                        <i class="bi bi-search me-1"></i>${t('myCoursesClientNoCoursesButton')}
+                    </a>
+                </div>
+            </div>`;
+        // Card generator function for client's enrolled courses
+        cardGenerator = (course) => {
+            if (!course) return '';
+            const provider = store.findUserById(course.providerId);
+            const price = parseFloat(course.price);
+            // Show 'Purchased' or 'Free' based on the price
+            const priceText = (isNaN(price) || price <= 0) ? t('browseCoursesPriceFree') : t('myCoursesPricePurchased', { price: price.toFixed(2) });
+            const priceClass = (isNaN(price) || price <= 0) ? 'text-primary fw-semibold' : 'text-success fw-semibold';
+            const icon = getCourseIcon(course.title);
+            const shortDesc = course.description ? (course.description.length > 90 ? course.description.substring(0, 87) + '...' : course.description) : t('browseCoursesNoDesc');
+            return `
+                <div class="col-sm-6 col-lg-4 col-xl-3 mb-4 d-flex align-items-stretch">
+                    <div class="card course-card h-100 shadow-sm w-100 border-0">
+                         <div class="card-img-placeholder" title="${course.title || ''}"><i class="bi ${icon}"></i></div>
+                         <div class="card-body d-flex flex-column p-3">
+                             <h5 class="card-title fw-medium">${course.title}</h5>
+                             <h6 class="card-subtitle mb-2 text-muted small">
+                                 ${t('browseCoursesBy', { provider: provider?.username || t('unknownProvider', {default: 'Unknown'}) })}
+                             </h6>
+                             <p class="card-text description-preview flex-grow-1 small text-secondary">${shortDesc}</p>
+                             <p class="price mt-auto mb-3 fs-6 ${priceClass}">${priceText}</p>
+                             <div class="mt-auto d-grid">
+                                 <a href="#course-detail/${course.id}" class="btn btn-accent btn-sm text-white">
+                                     <i class="bi bi-play-circle-fill"></i> ${t('myCoursesGoToCourseButton')}
+                                 </a>
+                             </div>
+                         </div>
+                     </div>
+                 </div>`;
+        };
+    }
+
+    // Generate the grid of course cards or the empty message
+    const gridHtml = courses.length > 0 ? courses.map(cardGenerator).join('') : emptyMsg;
+
+    // Assemble the final page HTML
+    const contentHtml = `
+         <div class="container pt-4 pb-4">
+             <!-- Alert area for actions like deletion -->
+             <div id="course-action-alert" class="alert d-none my-3" role="alert"></div>
+             <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+                 <h2 class="display-5 fw-light mb-0"><i class="bi ${pageIcon} me-2 text-primary"></i> ${pageTitle}</h2>
+                 ${currentUser.role === 'provider' ? `
+                    <a href="#create-course" class="btn btn-sm btn-success">
+                        <i class="bi bi-plus-lg me-1"></i>${t('myCoursesProviderCreateButton')}
+                    </a>` : ''}
+             </div>
+             <div class="row fade-in">${gridHtml}</div>
+         </div>`;
+    render(contentHtml, false); // Render as general content
+}
+
+// Course Detail Page
+export function renderCourseDetailPage() {
+    const hashParts = window.location.hash.split('/');
+    const courseId = hashParts[1];
+
+    // Validate course ID presence
+    if (!courseId) {
+        console.error("[View] Course Detail: No Course ID found in hash.");
+        renderTemporaryMessage('alertTempInvalidUrl', 'danger');
+        setTimeout(() => window.location.hash = '#browse-courses', 2500);
+        return;
+    }
+    console.log(`[View] Rendering Course Detail for ID: ${courseId}`);
+
+    const course = store.findCourseById(courseId);
+    const currentUser = auth.getCurrentUser();
+
+    // Handle course not found
+    if (!course) {
+        console.warn(`[View] Course Detail: Course with ID ${courseId} not found.`);
+        renderTemporaryMessage('alertTempNotFound', 'warning');
+        setTimeout(() => window.location.hash = '#browse-courses', 2500);
+        return;
+    }
+
+    // --- Prepare Data ---
+    const provider = store.findUserById(course.providerId);
+    const isEnrolled = currentUser?.role === 'client' && Array.isArray(course.enrolledStudentIds) && course.enrolledStudentIds.includes(currentUser.id);
+    const canEnroll = currentUser?.role === 'client' && !isEnrolled;
+    const isProvider = currentUser?.role === 'provider' && currentUser.id === course.providerId;
+    const isGuest = !currentUser;
+    const isAdmin = currentUser?.role === 'admin';
+
+    const price = parseFloat(course.price);
+    const priceText = (isNaN(price) || price <= 0) ? t('courseDetailPriceFree') : `$${price.toFixed(2)}`;
+    const priceClass = (isNaN(price) || price <= 0) ? 'free text-primary fw-bold' : 'text-success fw-bolder';
+
+    const courseIcon = getCourseIcon(course.title);
+    // Safely handle description, replace newlines with <br>
+    const descriptionHtml = course.description ? String(course.description).replace(/\n/g, '<br>') : `<p class="text-muted fst-italic">${t('browseCoursesNoDesc')}</p>`;
+
+    // --- Build Page Sections ---
+    let actionAreaHtml = '', enrolledListHtml = '', footerActionsHtml = '', sessionHtml = '';
+
+    // 1. Enrollment/Action Area
+    if (canEnroll) {
+        actionAreaHtml = `<button class="btn btn-primary btn-lg enroll-button w-100 py-3" data-course-id="${course.id}"><i class="bi bi-plus-circle-fill"></i> ${t('courseDetailEnrollButton', { price: price > 0 ? ` for ${priceText}` : '' })}</button>`;
+    } else if (isEnrolled) {
+        actionAreaHtml = `<div class="alert alert-success d-flex align-items-center mb-0 py-3"><i class="bi bi-check-circle-fill fs-4 me-3"></i><div class="fs-5 fw-medium">${t('courseDetailEnrolledBadge')}</div></div>`;
+    } else if (isProvider) {
+        actionAreaHtml = `<div class="alert alert-info d-flex align-items-center mb-0 py-3"><i class="bi bi-person-workspace fs-4 me-3"></i><div>${t('courseDetailProviderBadge')}</div></div>`;
+    } else if (isGuest) {
+        actionAreaHtml = `<a href="#login" class="btn btn-secondary btn-lg w-100 py-3"><i class="bi bi-box-arrow-in-right"></i> ${t('courseDetailLoginButton')}</a>`;
+    } else if (isAdmin) {
+        actionAreaHtml = `<div class="alert alert-secondary d-flex align-items-center mb-0 py-3"><i class="bi bi-shield-lock-fill fs-4 me-3"></i><div>${t('courseDetailAdminBadge')}</div></div>`;
+    }
+
+    // 2. Enrolled Students List (Provider View)
+    if (isProvider) {
+        const students = store.getEnrolledStudentsDetails(courseId);
+        enrolledListHtml = `<hr class="my-4"><h4 class="mt-4 mb-3 fw-medium"><i class="bi bi-people-fill me-2 text-muted"></i>${t('courseDetailEnrolledStudentsTitle')}</h4>`;
+        if (students.length > 0) {
+            enrolledListHtml += `<ul class="list-group list-group-flush simple-list mb-3 shadow-sm rounded overflow-hidden border">`; // Added border and overflow
+            enrolledListHtml += students.map(s => `<li class="list-group-item px-3 py-2 bg-light border-bottom"><i class="bi bi-person-check-fill text-success me-2"></i> ${s.username} <code class="ms-2 text-muted small">(ID: ${s.id})</code></li>`).join('');
+            enrolledListHtml += `</ul><p class="text-muted small mt-2"><i class="bi bi-info-circle me-1"></i>${t('courseDetailEnrolledStudentsTotal', { count: students.length })}</p>`;
+        } else {
+            enrolledListHtml += `<p class="text-muted fst-italic">${t('courseDetailNoEnrolledStudents')}</p>`;
+        }
+    }
+
+    // 3. Live Sessions Section (Provider or Enrolled Client View)
+    if (isProvider || isEnrolled) {
+        const sessions = store.getLiveSessionsForCourse(courseId); // Already sorted by date
+        sessionHtml = `<hr class="my-4"><div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                         <h4 class="fw-medium mb-0"><i class="bi bi-camera-video-fill me-2 text-muted"></i>${t('courseDetailSessionTitle')}</h4>`;
+        // Add "Schedule" button only for the provider
+        if (isProvider) {
+            sessionHtml += `<button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#scheduleSessionModal" data-course-id="${course.id}" data-course-title="${course.title || ''}">
+                              <i class="bi bi-plus-lg me-1"></i>${t('courseDetailScheduleSessionButton')}
+                           </button>`;
+        }
+        sessionHtml += `</div>`; // End of header div
+
+        if (sessions.length > 0) {
+            sessionHtml += `<ul class="list-group list-group-flush mb-3 simple-list border rounded overflow-hidden shadow-sm">`;
+            sessions.forEach(session => {
+                const formattedDate = formatDateTime(session.dateTime); // Format date/time
+                // Basic validation for meeting link
+                let meetingLink = '#';
+                try {
+                    if (session.meetingLink && new URL(session.meetingLink)) {
+                        meetingLink = session.meetingLink;
+                    } else {
+                         console.warn(`Invalid meeting link for session ${session.id}: ${session.meetingLink}`);
+                         meetingLink = '#invalid-link'; // Or disable button
+                    }
+                } catch (_) {
+                     console.warn(`Invalid meeting link format for session ${session.id}: ${session.meetingLink}`);
+                     meetingLink = '#invalid-link'; // Or disable button
+                }
+
+                sessionHtml += `
+                    <li class="list-group-item session-list-item px-3 py-2">
+                        <div class="session-info flex-grow-1 me-3">
+                            <span class="session-title fw-medium d-block">${session.title || t('untitledSession', {default: 'Untitled Session'})}</span>
+                            <span class="session-time small text-muted">${formattedDate}</span>
+                        </div>
+                         ${meetingLink !== '#invalid-link' ? `
+                             <a href="${meetingLink}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-primary session-link flex-shrink-0">
+                                 <i class="bi bi-box-arrow-up-right me-1"></i>${t('courseDetailJoinSessionButton')}
+                             </a>
+                         ` : `
+                             <button class="btn btn-sm btn-secondary session-link flex-shrink-0 disabled" title="${t('invalidMeetingLink', {default: 'Invalid Link'})}">
+                                <i class="bi bi-x-circle"></i> ${t('invalidLinkShort', {default: 'Invalid'})}
+                             </button>
+                         `}
+                    </li>`;
+            });
+            sessionHtml += `</ul>`;
+        } else {
+            sessionHtml += `<p class="text-muted fst-italic">${t('courseDetailNoSessions')}</p>`;
+        }
+    }
+
+
+    // 4. Footer Actions (Edit/Delete)
+    if (isProvider) {
+         // Edit button (disabled for now) + Delete button
+        footerActionsHtml = `
+            <div class="btn-group">
+                <button class="btn btn-outline-secondary disabled" title="${t('featureNotAvailable', {default: 'Feature not available'})}">
+                    <i class="bi bi-pencil-square"></i> ${t('courseDetailEditButton')}
+                </button>
+                <button class="btn btn-outline-danger delete-course-button" data-course-id="${course.id}">
+                    <i class="bi bi-trash"></i> ${t('courseDetailDeleteButton')}
+                </button>
+            </div>`;
+    } else if (isAdmin) {
+        // Admin delete button
+        footerActionsHtml = `
+             <button class="btn btn-outline-danger delete-course-button" data-course-id="${course.id}" title="${t('courseDetailAdminDeleteButton')}">
+                 <i class="bi bi-trash-fill"></i> ${t('courseDetailAdminDeleteButton')}
+             </button>`;
+    }
+
+    // --- Assemble Full Page HTML ---
+    const contentHtml = `
+    <div class="container pt-4 pb-4">
+        <div class="row justify-content-center fade-in">
+            <div class="col-lg-10 col-xl-9">
+                <div class="card shadow-lg border-0 mb-4 overflow-hidden course-detail rounded-3">
+                    <!-- Course Image/Icon Placeholder -->
+                    <div class="card-img-placeholder bg-light" style="height:250px; font-size:7rem; display:flex; align-items:center; justify-content:center; color: rgba(var(--bs-primary-rgb), 0.2);">
+                        <i class="bi ${courseIcon}" title="${course.title || ''}"></i>
+                    </div>
+
+                    <div class="card-body p-4 p-md-5">
+                        <!-- Breadcrumbs -->
+                        <nav aria-label="breadcrumb" class="mb-4">
+                            <ol class="breadcrumb small bg-light bg-opacity-75 p-2 rounded-pill px-3">
+                                <li class="breadcrumb-item"><a href="#browse-courses">${t('navBrowseCourses')}</a></li>
+                                <li class="breadcrumb-item active" aria-current="page">${course.title || t('untitledCourse', {default: 'Untitled Course'})}</li>
+                            </ol>
+                        </nav>
+
+                        <!-- Course Header -->
+                        <h1 class="card-title display-5 mb-2 fw-bold">${course.title || t('untitledCourse', {default: 'Untitled Course'})}</h1>
+                        <h5 class="card-subtitle mb-4 text-muted fw-normal">
+                             ${t('courseDetailBy', { provider: provider?.username || t('unknownProvider', {default: 'Unknown'}) })}
+                        </h5>
+
+                        <!-- Price -->
+                        <p class="price display-4 my-4 ${priceClass}">${priceText}</p>
+
+                         <!-- Alerts for enrollment/actions -->
+                         <div id="enroll-alert" class="alert d-none my-3" role="alert"></div>
+                         <div id="course-action-alert" class="alert d-none my-3" role="alert"></div>
+
+                         <!-- Enrollment Action Area -->
+                         <div class="enroll-action-area mb-4 pb-2">
+                             ${actionAreaHtml}
+                         </div>
+
+                         <!-- About Section -->
+                         <hr class="my-4">
+                         <h4 class="mb-3 fw-medium"><i class="bi bi-info-circle-fill me-2 text-muted"></i>${t('courseDetailAboutTitle')}</h4>
+                         <div class="description lead fs-6 mb-4">
+                             ${descriptionHtml}
+                         </div>
+
+                         <!-- Enrolled Students Section (if provider) -->
+                         ${enrolledListHtml}
+
+                         <!-- Live Sessions Section (if provider or enrolled) -->
+                         ${sessionHtml}
+
+                         <!-- Footer Actions -->
+                         <hr class="my-4">
+                         <div class="d-flex flex-column flex-sm-row justify-content-between align-items-center gap-3 mt-4">
+                             <a href="#browse-courses" class="btn btn-outline-secondary">
+                                 <i class="bi bi-arrow-left"></i> ${t('courseDetailBackButton')}
+                             </a>
+                             ${footerActionsHtml}
+                         </div>
+                     </div> <!-- End card-body -->
+                 </div> <!-- End card -->
+             </div> <!-- End col -->
+         </div> <!-- End row -->
+     </div> <!-- End container -->
+     `;
+    render(contentHtml, false); // Render as general content
+
+     // --- Event Listener for Modal Trigger ---
+     // Re-attach listener specifically after rendering this page
+     const scheduleModalTrigger = document.querySelector('[data-bs-target="#scheduleSessionModal"]');
+     if (scheduleModalTrigger) {
+         scheduleModalTrigger.addEventListener('click', event => {
+             const button = event.currentTarget;
+             const courseId = button.getAttribute('data-course-id');
+             const courseTitle = button.getAttribute('data-course-title');
+             const modalTitleEl = document.getElementById('scheduleSessionModalLabel');
+             // We are using form's data attribute now, so no hidden input needed
+             // const courseIdInput = document.getElementById('schedule-course-id');
+             const form = document.getElementById('schedule-session-form');
+
+             // Set modal title using translated string
+             if (modalTitleEl) modalTitleEl.textContent = t('scheduleSessionModalTitle', { courseTitle: courseTitle });
+             // if (courseIdInput) courseIdInput.value = courseId; // No longer needed
+             // Store courseId on the form itself for easier access in the submit handler (main.js)
+             if (form) $(form).data('course-id', courseId);
+
+             // Clear form and alert when modal is shown (or re-shown)
+             $(form)[0].reset();
+             $('#session-alert').addClass('d-none').removeClass('show fade');
+         });
+     }
+
+     // Add listener to clear form when modal is hidden (already in main.js, but good to have here too for clarity)
+     // Ensure this doesn't attach multiple listeners if renderCourseDetailPage is called repeatedly without page reload.
+     const scheduleModal = document.getElementById('scheduleSessionModal');
+     if (scheduleModal && !scheduleModal.dataset.listenerAttached) { // Check if listener already attached
+        scheduleModal.addEventListener('hidden.bs.modal', () => {
+            const form = document.getElementById('schedule-session-form');
+             if(form) {
+                 form.reset();
+                 // Also hide any alert inside the modal
+                 $('#session-alert').addClass('d-none').removeClass('show fade alert-success alert-danger alert-warning');
+             }
+        });
+         scheduleModal.dataset.listenerAttached = 'true'; // Mark as attached
+     }
+}
+
+
+// Not Found Page (404)
+export function renderNotFoundPage() {
+     const contentHtml = `
+        <div class="container py-5">
+            <div class="text-center py-5 fade-in">
+                <i class="bi bi-compass-fill display-1 text-primary opacity-50"></i>
+                <h1 class="display-4 mt-4 fw-bold">${t('notFoundTitle')}</h1>
+                <p class="lead text-muted mt-3 mb-4 col-md-8 mx-auto">${t('notFoundText')}</p>
+                <a href="#home" class="btn btn-primary mt-4 px-4 py-2">
+                    <i class="bi bi-house-door"></i> ${t('notFoundButton')}
+                </a>
+            </div>
+        </div>`;
+    render(contentHtml, false); // Render as general content
+    toggleAdminSidebar(false); // Ensure admin sidebar is hidden on 404
+}
+```
+
+**`index.html` (Optional: Add `data-translate` for static elements if needed)**
+
+```html
+<!DOCTYPE html>
+<html lang="en" dir="ltr"> <!-- Default lang/dir, updated by i18n.js -->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Use a translation key for the title, update it dynamically if needed -->
+    <title data-translate="appTitle">LearnSphere | Online Course Platform</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Google Fonts (Poppins & Cairo for Arabic) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" h
+An internal error has occurred.
+Token count 106,400 / 1,048,576
+Type something
+
+Run
+Ctrl
+Gemini 2.5 Pro Preview 03-25
+1
+warning
+Failed to generate content.
