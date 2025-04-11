@@ -25,6 +25,11 @@ const ADMIN_REGISTRATION_CODE = "1234"; // Hardcoded admin code for demo purpose
 export function register(username, password, role, adminCode = null) {
     console.log(`[Auth] Attempting registration for: ${username}, Role: ${role}`);
 
+    // **SECURITY WARNING:** Storing plaintext passwords like this is INSECURE.
+    // In a real application, hash the password on the SERVER before storing.
+    // Do NOT store plaintext passwords in localStorage or anywhere client-side.
+    console.warn("[SECURITY] Attempting registration with plaintext password storage. This is insecure and for demonstration only.");
+
     // --- Validation --- (Some validation already happens in main.js handler)
     if (!username || !password || !role) {
         return { success: false, messageKey: 'registerErrorRequired' };
@@ -36,13 +41,14 @@ export function register(username, password, role, adminCode = null) {
          return { success: false, messageKey: 'registerErrorPasswordLength' };
     }
     if (!['client', 'provider', 'admin'].includes(role)) {
-        return { success: false, messageKey: 'Invalid role selected.' }; // Keep as string if no key needed
+        // Use a general error message or create a specific translation key if needed
+        return { success: false, messageKey: 'registerErrorInvalidRole' };
     }
 
     // --- Check Username Existence ---
     if (store.findUserByUsername(username)) {
         console.warn(`[Auth] Registration failed: Username '${username}' already exists.`);
-        return { success: false, messageKey: 'This username is already taken.' }; // Keep as string
+        return { success: false, messageKey: 'registerErrorUsernameTaken' };
     }
 
     // --- Admin Role Specific Checks ---
@@ -53,13 +59,12 @@ export function register(username, password, role, adminCode = null) {
         }
         if (adminCode !== ADMIN_REGISTRATION_CODE) {
             console.warn(`[Auth] Failed admin registration attempt for '${username}' with incorrect code: ${adminCode}`);
-            return { success: false, messageKey: 'Invalid Admin Registration Code.' }; // Keep as string
+            return { success: false, messageKey: 'registerErrorInvalidAdminCode' };
         }
         console.log('[Auth] Admin registration code verified.');
     }
 
     // --- Add User to Store ---
-    // NOTE: Storing plain text password here is INSECURE. For demo only.
     const newUser = { username, password, role }; // Let store.js assign ID and createdAt
     store.addUser(newUser);
 
@@ -78,21 +83,31 @@ export function register(username, password, role, adminCode = null) {
 export function login(username, password) {
     console.log(`[Auth] --- LOGIN ATTEMPT --- User='${username}'`);
 
+    // **SECURITY WARNING:** Plaintext password check. INSECURE. Demo only.
+    console.warn("[SECURITY] Performing login with plaintext password check. This is insecure and for demonstration only.");
+
     let user = store.findUserByUsername(username);
 
+    // Check fallback only if user not found in primary store
     if (!user) {
         console.warn(`[Auth] User '${username}' not found in store. Checking fallback...`);
         user = DEFAULT_USERS_FALLBACK.find(u => u.username === username);
-        if (!user) {
-            console.error(`[Auth] Login Failed: User '${username}' not found.`);
-            return { success: false, messageKey: 'loginErrorInvalid' };
+        if (user) {
+             console.log(`[Auth] User '${username}' FOUND in fallback. Note: Fallback data may not include recent changes.`);
+             // Optional: Add user from fallback to primary store if they log in successfully?
+             // store.addUser(user); // Consider implications of overwriting if username exists now
         }
-         console.log(`[Auth] User '${username}' FOUND in fallback.`);
+    }
+
+    if (!user) {
+        console.error(`[Auth] Login Failed: User '${username}' not found in store or fallback.`);
+        return { success: false, messageKey: 'loginErrorInvalid' };
     } else {
-        console.log(`[Auth] User '${username}' FOUND in store.`);
+        console.log(`[Auth] User '${username}' FOUND in store or fallback.`);
     }
 
     // --- Verify Password ---
+    // **SECURITY WARNING:** Plaintext comparison.
     if (!user.password || user.password !== password) {
         console.error(`[Auth] Login Failed: Password mismatch for '${username}'.`);
         return { success: false, messageKey: 'loginErrorInvalid' };
@@ -125,7 +140,7 @@ export function getCurrentUser() {
  * @returns {boolean} - True if a user is logged in, false otherwise.
  */
 export function isLoggedIn() {
-    return !!store.getLoggedInUser();
+    return !!store.getLoggedInUser(); // Check if getLoggedInUser returns a truthy value
 }
 
 /**

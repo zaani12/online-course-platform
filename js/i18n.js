@@ -86,43 +86,35 @@ async function setLanguage(lang) {
  * Supports simple variable replacement using {varName}.
  * @param {string} key - The translation key (from JSON files).
  * @param {object} [variables={}] - An object containing variables for replacement.
- * @returns {string} - The translated string or the key itself if not found.
+ * @param {string} [defaultText=null] - Optional default text if key not found.
+ * @returns {string} - The translated string or the key/default text if not found.
  */
-function t(key, variables = {}) {
+function t(key, variables = {}, defaultText = null) {
     const currentLang = getCurrentLanguage(); // Get current language setting
     const langTranslations = translations[currentLang];
 
+    let translation;
+
     // Check if translations for the current language are loaded
-    if (!langTranslations) {
-        console.warn(`[i18n] Translations not loaded for language: ${currentLang}. Cannot translate key: ${key}. Attempting load...`);
-        // Attempt to load synchronously (not ideal, but might help in some scenarios)
-        // A better approach is ensuring loading happens reliably earlier.
-        // For now, just return a placeholder.
-        return `{{${key}}}`; // Use different brackets to signify loading issue
-    }
-
-    let translation = langTranslations[key];
-
-    // Handle missing keys
-    if (translation === undefined) {
-        console.warn(`[i18n] Missing translation key '${key}' for language '${currentLang}'.`);
-        // Fallback to English if key missing in current language (Optional)
-        if (currentLang !== DEFAULT_LANG) {
-            const fallbackTranslation = translations[DEFAULT_LANG]?.[key];
-            if (fallbackTranslation !== undefined) {
-                console.warn(`[i18n] Using fallback translation for key '${key}' from language '${DEFAULT_LANG}'.`);
-                translation = fallbackTranslation;
-            } else {
-                return `{${key}}`; // Return the key wrapped if not found in default either
-            }
+    if (langTranslations && langTranslations[key] !== undefined) {
+        translation = langTranslations[key];
+    } else {
+        // Try fallback to default language (English)
+        if (currentLang !== DEFAULT_LANG && translations[DEFAULT_LANG] && translations[DEFAULT_LANG][key] !== undefined) {
+            translation = translations[DEFAULT_LANG][key];
+            // console.warn(`[i18n] Missing key '${key}' for '${currentLang}'. Using fallback '${DEFAULT_LANG}'.`);
         } else {
-             return `{${key}}`; // Return the key itself wrapped if not found in default
+            // Key not found in current or default language
+            console.warn(`[i18n] Missing translation key '${key}' for language '${currentLang}' (and fallback '${DEFAULT_LANG}').`);
+            // Use provided default text or return the key itself
+            translation = defaultText !== null ? defaultText : `{${key}}`;
         }
     }
 
     // Replace variables if any
     return replaceVariables(translation, variables);
 }
+
 
 /**
  * Helper function to replace placeholders like {varName} in a string.
@@ -141,7 +133,7 @@ function replaceVariables(str, variables) {
      });
      // Check for remaining placeholders (indicates missing variables passed to t())
      if (/\{\w+\}/.test(str)) {
-        console.warn(`[i18n] Potential missing variables in translation: "${str}"`);
+        // console.warn(`[i18n] Potential missing variables in translation: "${str}"`);
      }
      return str;
 }
