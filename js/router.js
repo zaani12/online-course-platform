@@ -1,4 +1,3 @@
-
 // js/router.js - Handles SPA routing and access control
 import * as views from './views.js';
 import * as auth from './auth.js';
@@ -17,20 +16,15 @@ const routes = {
     '#admin-dashboard': views.renderAdminDashboard,
     '#admin-users': views.renderAdminUsersPage,
     '#admin-courses': views.renderAdminCoursesPage,
-    // '#course-detail' : Handled separately below due to parameter
-    // '#schedule-session': Handled by modal within course-detail view
 };
 
 // Define routes that require the user to be logged in
 const protectedRoutes = [
     '#dashboard', '#my-courses', '#create-course',
     '#admin-dashboard', '#admin-users', '#admin-courses',
-    // '#schedule-session' // Action itself is protected by provider role check
-    // '#course-detail' // Detail page access is public. Actions within may require login.
 ];
-
 // Define routes restricted to specific roles
-const providerOnlyRoutes = ['#create-course']; // Scheduling is handled via button on detail page
+const providerOnlyRoutes = ['#create-course'];
 const adminOnlyRoutes = ['#admin-dashboard', '#admin-users', '#admin-courses'];
 
 // Helper to hide alerts across views during navigation
@@ -46,11 +40,13 @@ function hideAllAlerts() {
     });
 }
 
+
 // The main router function, called on initial load and hash change
-// Exported to be callable externally (e.g., after language change)
 export function router() {
-    // 1. Update Navbar state reflecting current user, active link, and language
+    // 1. Update Navbar state immediately
     views.renderNavbar();
+
+    // No need for setTimeout here anymore, auth.isLoggedIn() uses internal state first
 
     // 2. Parse the URL hash
     const hash = window.location.hash || '#home';
@@ -60,7 +56,7 @@ export function router() {
     console.log(`[Router] Navigating - Hash: ${hash}, Path: ${path}, Param: ${param}`);
 
     // 3. Check Authentication & Authorization Status
-    const isLoggedIn = auth.isLoggedIn();
+    const isLoggedIn = auth.isLoggedIn(); // Should now correctly reflect state after login
     const userRole = auth.getCurrentUserRole();
     console.log(`[Router] Auth State - LoggedIn: ${isLoggedIn}, Role: ${userRole || 'Guest'}`);
 
@@ -68,21 +64,21 @@ export function router() {
     if (protectedRoutes.includes(path) && !isLoggedIn) {
         console.log(`[Router] Access Denied: Route "${path}" requires login. Redirecting to #login.`);
         hideAllAlerts();
-        window.location.hash = '#login';
-        return;
+        window.location.hash = '#login'; // Redirect if still not logged in
+        return; // Stop processing
     }
     if (adminOnlyRoutes.includes(path) && userRole !== 'admin') {
         console.log(`[Router] Access Denied: Route "${path}" requires Admin role (User role: ${userRole}). Redirecting.`);
         hideAllAlerts();
         views.renderTemporaryMessage('alertTempAdminRequired', 'danger');
-        setTimeout(() => { window.location.hash = isLoggedIn ? '#dashboard' : '#login'; }, 2000);
+        setTimeout(() => { if (window.location.hash === hash) window.location.hash = isLoggedIn ? '#dashboard' : '#login'; }, 2000);
         return;
     }
     if (providerOnlyRoutes.includes(path) && userRole !== 'provider') {
         console.log(`[Router] Access Denied: Route "${path}" requires Provider role (User role: ${userRole}). Redirecting to dashboard.`);
         hideAllAlerts();
         views.renderTemporaryMessage('alertTempProviderRequired', 'warning');
-        setTimeout(() => { window.location.hash = '#dashboard'; }, 2000);
+        setTimeout(() => { if (window.location.hash === hash) window.location.hash = '#dashboard'; }, 2000);
         return;
     }
 
@@ -112,6 +108,7 @@ export function router() {
     window.scrollTo(0, 0);
     console.log(`[Router] --- Navigation Handled for ${path} ---`);
 }
+
 
 // Initialize the router on load and listen for hash changes
 export function initializeRouter() {

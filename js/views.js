@@ -112,9 +112,9 @@ export function renderNavbar() {
         const langKey = `lang${lang.charAt(0).toUpperCase() + lang.slice(1)}`;
         // Provide a sensible default based on the lang code itself
         let defaultLangName = lang.toUpperCase(); // Default to 'EN', 'FR', 'AR'
-        if (lang === 'en') defaultLangName = 'English';
-        else if (lang === 'fr') defaultLangName = 'French';
-        else if (lang === 'ar') defaultLangName = 'Arabic';
+        if (lang === 'EN') defaultLangName = 'English';
+        else if (lang === 'FR') defaultLangName = 'French';
+        else if (lang === 'AR') defaultLangName = 'Arabic';
 
         // Call t() with the key AND the default text
         const translatedName = t(langKey, {}, defaultLangName);

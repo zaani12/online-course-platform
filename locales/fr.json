@@ -210,7 +210,7 @@
   "paginationNotAvailable": "Pagination N/A",
   "viewAction": "Voir",
   "new": "Nouveau",
-  "langEnglish": "Anglais",
-  "langFrench": "Français",
-  "langArabic": "Arabe"
+  "langEN": "Anglais",
+  "langFR": "Français",
+  "langAR": "Arabe"
 }

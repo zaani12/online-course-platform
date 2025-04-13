@@ -1,153 +1,135 @@
 // js/auth.js - Handles user authentication and session
 import * as store from './store.js';
 
-// IMPORTANT: This is for demonstration. Real apps MUST NOT store passwords like this.
-// This fallback is primarily useful if localStorage gets cleared during development.
+// --- Internal state for logged-in user ---
+let loggedInUserObject = null;
+// --- Initialize internal state from store on load ---
+// We do this *after* ensuring the store itself is initialized in main.js
+function initializeAuthUserState() {
+    loggedInUserObject = store.getLoggedInUser();
+    console.log(`[Auth Init] Initial user state loaded from store: ${loggedInUserObject ? loggedInUserObject.id : 'null'}`);
+}
+
+// We'll call initializeAuthUserState from main.js after store init.
+
+
 const DEFAULT_USERS_FALLBACK = [
     { "id": "admin001", "username": "platform_admin", "password": "adminpassword", "role": "admin" },
     { "id": "provider001", "username": "teacher_jane", "password": "password123", "role": "provider" },
     { "id": "provider002", "username": "prof_davis", "password": "password123", "role": "provider" },
     { "id": "client001", "username": "student_bob", "password": "password123", "role": "client" },
-    // Add more fallback users if needed, mirroring data.json
 ];
 
-const ADMIN_REGISTRATION_CODE = "1234"; // Hardcoded admin code for demo purposes
+const ADMIN_REGISTRATION_CODE = "1234";
 
-/**
- * Registers a new user.
- * Performs validation and adds the user to the store.
- * @param {string} username - The desired username.
- * @param {string} password - The desired password.
- * @param {string} role - The selected role ('client', 'provider', 'admin').
- * @param {string|null} adminCode - The admin code, required if role is 'admin'.
- * @returns {{success: boolean, messageKey: string}} - Result object with translation key.
- */
 export function register(username, password, role, adminCode = null) {
     console.log(`[Auth] Attempting registration for: ${username}, Role: ${role}`);
+    console.log(`[Auth] [SECURITY] Attempting registration with plaintext password storage. This is insecure and for demonstration only.`);
 
-    // **SECURITY WARNING:** Storing plaintext passwords like this is INSECURE.
-    // In a real application, hash the password on the SERVER before storing.
-    // Do NOT store plaintext passwords in localStorage or anywhere client-side.
-    console.warn("[SECURITY] Attempting registration with plaintext password storage. This is insecure and for demonstration only.");
-
-    // --- Validation --- (Some validation already happens in main.js handler)
-    if (!username || !password || !role) {
-        return { success: false, messageKey: 'registerErrorRequired' };
-    }
-    if (username.length < 3) {
-         return { success: false, messageKey: 'registerErrorUsernameLength' };
-    }
-    if (password.length < 6) {
-         return { success: false, messageKey: 'registerErrorPasswordLength' };
-    }
-    if (!['client', 'provider', 'admin'].includes(role)) {
-        // Use a general error message or create a specific translation key if needed
-        return { success: false, messageKey: 'registerErrorInvalidRole' };
-    }
-
-    // --- Check Username Existence ---
-    if (store.findUserByUsername(username)) {
-        console.warn(`[Auth] Registration failed: Username '${username}' already exists.`);
-        return { success: false, messageKey: 'registerErrorUsernameTaken' };
-    }
-
-    // --- Admin Role Specific Checks ---
+    if (!username || !password || !role) { return { success: false, messageKey: 'registerErrorRequired' }; }
+    if (username.length < 3) { return { success: false, messageKey: 'registerErrorUsernameLength' }; }
+    if (password.length < 6) { return { success: false, messageKey: 'registerErrorPasswordLength' }; }
+    if (!['client', 'provider', 'admin'].includes(role)) { return { success: false, messageKey: 'Invalid role selected.' };}
+    if (store.findUserByUsername(username)) { console.warn(`[Auth] Registration failed: Username '${username}' already exists.`); return { success: false, messageKey: 'This username is already taken.' }; }
     if (role === 'admin') {
-        if (!adminCode) {
-            console.warn(`[Auth] Admin registration attempt for '${username}' missing admin code.`);
-            return { success: false, messageKey: 'registerErrorAdminCodeRequired' };
-        }
-        if (adminCode !== ADMIN_REGISTRATION_CODE) {
-            console.warn(`[Auth] Failed admin registration attempt for '${username}' with incorrect code: ${adminCode}`);
-            return { success: false, messageKey: 'registerErrorInvalidAdminCode' };
-        }
+        if (!adminCode) { console.warn(`[Auth] Admin registration attempt for '${username}' missing admin code.`); return { success: false, messageKey: 'registerErrorAdminCodeRequired' }; }
+        if (adminCode !== ADMIN_REGISTRATION_CODE) { console.warn(`[Auth] Failed admin registration attempt for '${username}' with incorrect code: ${adminCode}`); return { success: false, messageKey: 'Invalid Admin Registration Code.' }; }
         console.log('[Auth] Admin registration code verified.');
     }
-
-    // --- Add User to Store ---
-    const newUser = { username, password, role }; // Let store.js assign ID and createdAt
-    store.addUser(newUser);
-
+    const newUser = { username, password, role };
+    store.addUser(newUser); // This handles logging internally now
     console.log(`[Auth] User registered successfully: ${username}, Role: ${role}`);
     return { success: true, messageKey: 'registerSuccessMessage' };
 }
 
-/**
- * Logs in a user.
- * Verifies username and password against the store (and fallback).
- * Sets the logged-in user session in the store.
- * @param {string} username - The username entered by the user.
- * @param {string} password - The password entered by the user.
- * @returns {{success: boolean, messageKey?: string, user?: object}} - Result object.
- */
 export function login(username, password) {
     console.log(`[Auth] --- LOGIN ATTEMPT --- User='${username}'`);
+    console.log(`[Auth] [SECURITY] Performing login with plaintext password check. This is insecure and for demonstration only.`);
 
-    // **SECURITY WARNING:** Plaintext password check. INSECURE. Demo only.
-    console.warn("[SECURITY] Performing login with plaintext password check. This is insecure and for demonstration only.");
-
-    let user = store.findUserByUsername(username);
-
-    // Check fallback only if user not found in primary store
-    if (!user) {
-        console.warn(`[Auth] User '${username}' not found in store. Checking fallback...`);
-        user = DEFAULT_USERS_FALLBACK.find(u => u.username === username);
+    let user = null;
+    let foundIn = 'nowhere';
+    try {
+        console.log(`[Auth] Attempting to find user '${username}' in store...`);
+        user = store.findUserByUsername(username);
         if (user) {
-             console.log(`[Auth] User '${username}' FOUND in fallback. Note: Fallback data may not include recent changes.`);
-             // Optional: Add user from fallback to primary store if they log in successfully?
-             // store.addUser(user); // Consider implications of overwriting if username exists now
+            foundIn = 'store';
+        } else {
+            console.warn(`[Auth] User '${username}' not found in store. Checking fallback...`);
+            user = DEFAULT_USERS_FALLBACK.find(u => u.username === username);
+            if (user) {
+                foundIn = 'fallback';
+            }
         }
+    } catch (err) {
+        console.error(`[Auth] CRITICAL ERROR during user lookup for '${username}':`, err);
+        return { success: false, messageKey: 'loginErrorInvalid' };
     }
 
     if (!user) {
         console.error(`[Auth] Login Failed: User '${username}' not found in store or fallback.`);
         return { success: false, messageKey: 'loginErrorInvalid' };
-    } else {
-        console.log(`[Auth] User '${username}' FOUND in store or fallback.`);
+    }
+    console.log(`[Auth] User '${username}' FOUND in ${foundIn}.`); // Simplified log
+
+    try {
+        console.log(`[Auth] Checking password for user '${username}'...`);
+        if (!user || typeof user.password === 'undefined') {
+             console.error(`[Auth] Login Failed: User object or password property is missing for '${username}'.`);
+             return { success: false, messageKey: 'loginErrorInvalid' };
+        }
+        if (user.password !== password) {
+            console.error(`[Auth] Login Failed: Password mismatch for '${username}'.`); // REMOVE password details from log later
+            return { success: false, messageKey: 'loginErrorInvalid' };
+        }
+        console.log(`[Auth] Password VERIFIED for user '${username}'.`);
+    } catch (err) {
+         console.error(`[Auth] CRITICAL ERROR during password check for '${username}':`, err);
+         return { success: false, messageKey: 'loginErrorInvalid' };
     }
 
-    // --- Verify Password ---
-    // **SECURITY WARNING:** Plaintext comparison.
-    if (!user.password || user.password !== password) {
-        console.error(`[Auth] Login Failed: Password mismatch for '${username}'.`);
-        return { success: false, messageKey: 'loginErrorInvalid' };
+    try {
+        console.log(`[Auth] Attempting to set logged in user ID in store: ${user.id}`);
+        store.setLoggedInUser(user.id); // Store the ID in localStorage via store
+        console.log(`[Auth] Successfully set logged in user ID in store.`);
+        loggedInUserObject = user; // **Set internal state immediately**
+        console.log(`[Auth] Internal user object set.`);
+    } catch (err) {
+         console.error(`[Auth] CRITICAL ERROR during setLoggedInUser for ID '${user.id}':`, err);
+         // Still return success if password was ok but saving session failed? Yes for now.
     }
 
-    // --- Login Success ---
-    store.setLoggedInUser(user.id);
     console.log(`[Auth] Login Success: User ${user.username} (Role: ${user.role}, ID: ${user.id}) logged in.`);
     return { success: true, user };
 }
 
-/**
- * Logs out the current user by clearing the session from the store.
- */
 export function logout() {
-    store.clearLoggedInUser();
-    console.log('[Auth] User logged out.');
+    store.clearLoggedInUser(); // Clear from localStorage via store
+    loggedInUserObject = null; // Clear internal variable
+    console.log('[Auth] User logged out (internal state cleared).');
 }
 
-/**
- * Gets the currently logged-in user object from the store.
- * @returns {object|null} - The user object or null if not logged in or session is invalid.
- */
 export function getCurrentUser() {
-    return store.getLoggedInUser();
+    // Prioritize internal variable, then check store if null (e.g., page load)
+    if (!loggedInUserObject) {
+        // console.log("[Auth.getCurrentUser] Internal state null, checking store...");
+        loggedInUserObject = store.getLoggedInUser(); // Re-hydrate from store
+    } else {
+         // console.log("[Auth.getCurrentUser] Returning from internal state.");
+    }
+    return loggedInUserObject;
 }
 
-/**
- * Checks if a user is currently logged in based on session data in the store.
- * @returns {boolean} - True if a user is logged in, false otherwise.
- */
 export function isLoggedIn() {
-    return !!store.getLoggedInUser(); // Check if getLoggedInUser returns a truthy value
+    // Check the result of getCurrentUser (which checks internal first, then store)
+    const currentUser = getCurrentUser();
+    // console.log(`[Auth.isLoggedIn] Status: ${!!currentUser}`);
+    return !!currentUser;
 }
 
-/**
- * Gets the role of the currently logged-in user.
- * @returns {string|null} - The user's role ('admin', 'provider', 'client') or null if not logged in.
- */
 export function getCurrentUserRole() {
     const user = getCurrentUser();
     return user ? user.role : null;
 }
+
+// Export the initialization function to be called from main.js
+export { initializeAuthUserState };

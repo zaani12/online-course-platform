@@ -69,64 +69,177 @@ $(async function() {
             else if ($alert.length) { $alert.addClass('d-none').removeClass('fade show'); }
         }
 
-        // --- Form Submission Handler ---
+        // --- START: Corrected Form Submission Handler ---
+
+        // Form Submission Handler
         $body.on('submit', 'form', function(event) {
-            event.preventDefault();
-            const form = this; const $form = $(form); const formId = $form.attr('id');
-            // console.log(`Handling submit for form: #${formId}`);
-            hideFormAlert(formId); // Hide previous alert using standardized ID
+            event.preventDefault(); // <-- PREVENT BROWSER'S DEFAULT SUBMIT/REFRESH
 
+            const form = this;
+            const $form = $(form);
+            const formId = $form.attr('id');
+            console.log(`Handling submit for form: #${formId}`);
+
+            // --- Login Form ---
             if (formId === 'login-form') {
-                const u = $form.find('#login-username').val().trim(); const p = $form.find('#login-password').val();
-                if (!u || !p) { showFormAlert(formId, 'loginErrorRequired', 'warning'); return; }
-                const r = auth.login(u, p); if (r.success) { navigate('#dashboard'); } else { showFormAlert(formId, r.messageKey || 'loginErrorInvalid', 'danger'); }
-            }
-            else if (formId === 'register-form') {
-                const u = $form.find('#register-username').val().trim(); const p = $form.find('#register-password').val(); const cp = $form.find('#register-confirm-password').val(); const role = $form.find('#register-role').val(); const ac = $form.find('#register-admin-code').val();
-                if (!u || !p || !cp || !role) { showFormAlert(formId, 'registerErrorRequired', 'warning'); return; }
-                if (p !== cp) { showFormAlert(formId, 'registerErrorPasswordMatch', 'warning'); return; }
-                if (u.length < 3) { showFormAlert(formId, 'registerErrorUsernameLength', 'warning'); return; }
-                if (p.length < 6) { showFormAlert(formId, 'registerErrorPasswordLength', 'warning'); return; }
-                if (role === 'admin' && !ac) { showFormAlert(formId, 'registerErrorAdminCodeRequired', 'warning'); return; }
-                const r = auth.register(u, p, role, ac);
-                if (r.success) { const msg = t(r.messageKey) + " " + t('registerSuccessLoginLink'); showFormAlert(formId, msg, 'success'); form.reset(); $('#register-role').val(""); $('#admin-code-group').hide(); }
-                else { showFormAlert(formId, r.messageKey, 'danger'); }
-            }
-            else if (formId === 'create-course-form') {
-                const user = auth.getCurrentUser();
-                if (!user || user.role !== 'provider') { showFormAlert(formId, 'alertTempProviderRequired', 'danger'); return; }
-                const title = $form.find('#course-title').val().trim(); const desc = $form.find('#course-description').val().trim(); const priceStr = $form.find('#course-price').val().trim();
-                if (!title || !desc || priceStr === '') { showFormAlert(formId, 'createCourseErrorRequired', 'warning'); return; }
-                const price = parseFloat(priceStr); if (isNaN(price) || price < 0) { showFormAlert(formId, 'createCourseErrorPrice', 'warning'); return; }
-                const newCourse = store.addCourse({ title, description: desc, price, providerId: user.id });
-                if (newCourse) { showFormAlert(formId, 'createCourseSuccess', 'success'); form.reset(); setTimeout(() => { navigate('#my-courses'); }, 1500); }
-                else { showFormAlert(formId, 'createCourseErrorGeneric', 'danger'); } // Use a generic error key
-            }
-            else if (formId === 'schedule-session-form') {
-                 const courseId = $form.data('course-id'); const user = auth.getCurrentUser();
-                 const modalFormAlertSelector = `#${formId}-alert`; // Use standardized ID within the modal's form
+                const username = $form.find('#login-username').val().trim();
+                const password = $form.find('#login-password').val(); // Don't trim password
+                const alertSel = '#login-alert';
+                hideFormAlert(formId, alertSel); // Hide previous alerts
 
-                 if (!user || user.role !== 'provider') { showFormAlert(formId, 'alertTempProviderRequired', 'danger'); return; }
-                 if (!courseId) { showFormAlert(formId, 'scheduleSessionErrorMissingId', 'danger'); return; } // Use specific key if exists
-                 const title = $form.find('#session-title').val().trim(); const dt = $form.find('#session-datetime').val(); const link = $form.find('#session-link').val().trim();
-                 if (!title || !dt || !link) { showFormAlert(formId, 'scheduleSessionErrorRequired', 'warning'); return; }
-                 try { new URL(link); } catch (_) { showFormAlert(formId, 'scheduleSessionErrorInvalidLink', 'warning'); return; }
-                 try { if(isNaN(new Date(dt).getTime())) throw new Error("Invalid Date"); } catch(_) { showFormAlert(formId, 'scheduleSessionErrorInvalidDate', 'warning'); return; }
-                 const success = store.addLiveSession(courseId, { title, dateTime: dt, meetingLink: link });
+                if (!username || !password) {
+                     showFormAlert(formId, alertSel, 'loginErrorRequired', 'warning'); // Use key
+                     return;
+                }
+
+                const result = auth.login(username, password);
+                if (result.success) {
+                    // Login successful, navigate to dashboard
+                    // Router will handle rendering navbar and dashboard view
+                    window.location.hash = '#dashboard';
+                } else {
+                    // Use the messageKey from auth.js for translation
+                    showFormAlert(formId, alertSel, result.messageKey || 'loginErrorInvalid', 'danger');
+                }
+            }
+            // --- Registration Form ---
+            else if (formId === 'register-form') {
+                const username = $form.find('#register-username').val().trim();
+                const password = $form.find('#register-password').val();
+                const confirmPassword = $form.find('#register-confirm-password').val();
+                const role = $form.find('#register-role').val();
+                const adminCode = $form.find('#register-admin-code').val(); // Might be empty
+                const alertSel = '#register-alert';
+                hideFormAlert(formId, alertSel); // Hide previous alerts
+
+                 // --- Client-Side Validation ---
+                 if (!username || !password || !confirmPassword || !role) {
+                     showFormAlert(formId, alertSel, 'registerErrorRequired', 'warning'); return;
+                 }
+                if (password !== confirmPassword) {
+                    showFormAlert(formId, alertSel, 'registerErrorPasswordMatch', 'warning'); return;
+                }
+                if (username.length < 3) {
+                     showFormAlert(formId, alertSel, 'registerErrorUsernameLength', 'warning'); return;
+                }
+                 if (password.length < 6) {
+                     showFormAlert(formId, alertSel, 'registerErrorPasswordLength', 'warning'); return;
+                }
+                if (role === 'admin' && !adminCode) {
+                     showFormAlert(formId, alertSel, 'registerErrorAdminCodeRequired', 'warning'); return;
+                }
+                 // --- End Validation ---
+
+                // Attempt registration via auth module
+                const result = auth.register(username, password, role, adminCode);
+                if (result.success) {
+                    // Combine success message with login link translation
+                    const messageHtml = t(result.messageKey || 'registerSuccessMessage') + " " + t('registerSuccessLoginLink');
+                    showFormAlert(formId, alertSel, messageHtml, 'success');
+                    form.reset(); // Clear the form fields
+                    // Reset dynamic fields (like hide admin code input) after successful registration
+                    const roleSelect = document.getElementById('register-role');
+                    const adminCodeGroup = document.getElementById('admin-code-group');
+                    if(roleSelect) roleSelect.value = ""; // Reset select to default placeholder
+                    if(adminCodeGroup) adminCodeGroup.style.display = 'none'; // Hide admin field again
+
+                } else {
+                    // Use messageKey from auth.js for translation
+                    showFormAlert(formId, alertSel, result.messageKey || 'Registration failed.', 'danger');
+                }
+            }
+            // --- Create Course Form ---
+            else if (formId === 'create-course-form') {
+                const currentUser = auth.getCurrentUser();
+                const alertSel = '#course-alert';
+                hideFormAlert(formId, alertSel); // Hide previous alerts
+
+                if (!currentUser || currentUser.role !== 'provider') {
+                    // This check is primarily done by router, but good failsafe
+                    showFormAlert(formId, alertSel, 'alertTempProviderRequired', 'danger');
+                    return;
+                }
+
+                const title = $form.find('#course-title').val().trim();
+                const description = $form.find('#course-description').val().trim();
+                const priceStr = $form.find('#course-price').val().trim();
+
+                 // --- Client-Side Validation ---
+                if (!title || !description || priceStr === '') {
+                     showFormAlert(formId, alertSel, 'createCourseErrorRequired', 'warning');
+                     return;
+                }
+                const price = parseFloat(priceStr);
+                if (isNaN(price) || price < 0) {
+                    showFormAlert(formId, alertSel, 'createCourseErrorPrice', 'warning');
+                    return;
+                }
+                 // --- End Validation ---
+
+                store.addCourse({ title, description, price, providerId: currentUser.id });
+                showFormAlert(formId, alertSel, 'createCourseSuccess', 'success');
+                form.reset();
+                setTimeout(() => { window.location.hash = '#my-courses'; }, 1500);
+            }
+            // --- Schedule Live Session Form ---
+            else if (formId === 'schedule-session-form') {
+                 const alertSel = '#session-alert'; // Alert inside the modal/form area
+                 hideFormAlert(formId, alertSel);
+                 const courseId = $form.data('course-id'); // Get course ID from form data attribute
+                 const currentUser = auth.getCurrentUser();
+
+                 if (!currentUser || currentUser.role !== 'provider') {
+                      showFormAlert(formId, alertSel, 'alertTempProviderRequired', 'danger'); return;
+                 }
+                  if (!courseId) {
+                     showFormAlert(formId, alertSel, 'Error: Course ID missing.', 'danger'); return; // Should not happen
+                 }
+
+                 const title = $form.find('#session-title').val().trim();
+                 const dateTime = $form.find('#session-datetime').val(); // Should be ISO format from datetime-local
+                 const meetingLink = $form.find('#session-link').val().trim();
+
+                  // Validation
+                 if (!title || !dateTime || !meetingLink) {
+                     showFormAlert(formId, alertSel, 'scheduleSessionErrorRequired', 'warning'); return;
+                 }
+                 try { // Validate URL
+                     new URL(meetingLink);
+                 } catch (_) {
+                     showFormAlert(formId, alertSel, 'scheduleSessionErrorInvalidLink', 'warning'); return;
+                 }
+                 try { // Validate Date
+                    if(isNaN(new Date(dateTime).getTime())) throw new Error("Invalid Date");
+                 } catch(_) {
+                    showFormAlert(formId, alertSel, 'scheduleSessionErrorInvalidDate', 'warning'); return;
+                 }
+                 // --- End Validation ---
+
+                 const success = store.addLiveSession(courseId, { title, dateTime, meetingLink });
+
                  if (success) {
-                     showFormAlert(formId, 'scheduleSessionSuccess', 'success'); form.reset();
+                     showFormAlert(formId, alertSel, 'scheduleSessionSuccess', 'success');
+                     form.reset();
+                     // Optionally close modal and refresh course detail view after delay
                      setTimeout(() => {
                          const modalElement = document.getElementById('scheduleSessionModal');
-                         const modalInstance = bootstrap.Modal.getInstance(modalElement);
-                         modalInstance?.hide();
-                         if (window.location.hash.startsWith('#course-detail')) {
-                            // console.log("Refreshing course detail page after scheduling...");
-                            views.renderCourseDetailPage(); // Re-render directly
+                         if (modalElement) {
+                             const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                             modalInstance?.hide();
                          }
-                    }, 1500);
-                 } else { showFormAlert(formId, 'scheduleSessionErrorFailed', 'danger'); }
+                         // Refresh the course detail page to show the new session
+                         if (window.location.hash.startsWith('#course-detail')) {
+                             views.renderCourseDetailPage(); // Re-render the detail page
+                         }
+                     }, 1500);
+                 } else {
+                     showFormAlert(formId, alertSel, 'Failed to schedule session. Please try again.', 'danger');
+                 }
             }
+            // Add handlers for other forms here if needed (e.g., Edit Course, Profile Update)
         });
+
+        // --- END: Corrected Form Submission Handler ---
 
         // Button Click Handler
         $body.on('click', 'button', async function(event) {
