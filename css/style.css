@@ -419,3 +419,33 @@ html[dir="rtl"] .form-select { background-position: left .75rem center; }
     .stat-card .stat-value { font-size: 2rem; }
     .chart-container { height: 250px; }
 }
+/* css/style.css */
+
+/* Style for the logo image within the navbar brand */
+.navbar-brand .navbar-logo {
+    height: 35px; /* --- ADJUST THIS VALUE --- common navbar heights are 30-40px */
+    width: auto; /* Maintain aspect ratio */
+    vertical-align: middle; /* Helps alignment, although flexbox on parent is better */
+    margin-right: 0.5rem; /* Ensure spacing if text follows */
+}
+
+/* Optional: Adjust navbar padding if logo makes it too tall */
+.navbar {
+    padding-top: 0.4rem;    /* Adjust as needed */
+    padding-bottom: 0.4rem; /* Adjust as needed */
+}
+
+/* Ensure the brand link itself aligns items nicely */
+.navbar-brand {
+    display: inline-flex; /* Use flexbox for alignment */
+    align-items: center;  /* Vertically center items */
+    padding-top: 0;       /* Remove default padding if necessary */
+    padding-bottom: 0;    /* Remove default padding if necessary */
+    margin-right: 1rem;   /* Ensure spacing after brand */
+}
+
+/* Optional: Style for the app name text if you add it back */
+.navbar-brand span[data-translate="appName"] {
+    font-size: 1.25rem; /* Match default fw-bold size */
+    line-height: inherit; /* Inherit from parent */
+}
