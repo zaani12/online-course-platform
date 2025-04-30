@@ -199,7 +199,7 @@ export function renderConversationPage() {
 
         // Auto-scroll
         const messageList = document.getElementById('message-list');
-        if (messageList) { messageList.scrollTop = 0; /* Scroll to top because of column-reverse */}
+        if (messageList) { messageList.scrollTop = 0; }
 
         // --- Inline Form Handler ---
         const sendMessageForm = document.getElementById('send-message-form');

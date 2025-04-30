@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-translate="appName">ClassHome</title>
+    <title data-translate="appName">LearnSphere</title>
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
     <!-- Bootstrap Icons -->
@@ -38,15 +38,67 @@
             </div>
         </nav>
     </header>
-
     <!-- Main Content Area -->
-    <main id="app-container" class="flex-grow-1" style="padding-top: 65px;">
-        <div id="initial-loading" class="d-flex justify-content-center align-items-center" style="min-height: 70vh;"> <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;"><span class="visually-hidden" data-translate="loading">Loading...</span></div> </div>
-        <div id="content-wrapper" class="container-fluid px-0">
-            <div class="row g-0">
-                 <nav id="admin-sidebar" class="col-md-3 col-lg-2 d-none d-md-block bg-light sidebar collapse"></nav>
-                 <div id="main-view-area" class="col-md-12 ms-sm-auto col-lg-12"> </div>
+    <main id="app-container" class="flex-grow-1 bg-light" style="padding-top: 60px;">
+
+        <div id="initial-loading" class="d-flex justify-content-center align-items-center" style="min-height: calc(100vh - 60px);">
+            <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                <span class="visually-hidden" data-translate="loading">Loading...</span>
             </div>
+        </div>
+
+        <div id="content-wrapper" class="container-fluid px-0 h-100">
+            <div class="row g-0 h-100">
+
+                <nav id="admin-sidebar" class="col-md-3 col-lg-2 d-none d-md-block bg-white sidebar collapse border-end shadow-sm">
+                    <div class="position-sticky pt-3 sidebar-sticky" style="top: 60px; height: calc(100vh - 60px);">
+                        <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-1 mb-2 text-muted text-uppercase">
+                            <span>Admin Panel</span>
+                        </h6>
+                        <ul class="nav flex-column">
+                            <li class="nav-item">
+                                <a class="nav-link" href="#admin-dashboard">
+                                    <i class="bi bi-grid-1x2-fill"></i>
+                                    Dashboard
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="#admin-users">
+                                    <i class="bi bi-people-fill"></i>
+                                    Manage Users
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" href="#admin-courses">
+                                    <i class="bi bi-journal-bookmark-fill"></i>
+                                    Manage Courses
+                                </a>
+                            </li>
+                             <li class="nav-item mt-2 border-top pt-2">
+                                <a class="nav-link" href="#browse-courses">
+                                    <i class="bi bi-search"></i>
+                                     Browse Courses
+                                 </a>
+                             </li>
+                        </ul>
+                    </div>
+                </nav>
+
+                <div id="main-view-area" class="col-md-9 ms-sm-auto col-lg-10 px-3 p-md-4 overflow-auto" style="height: calc(100vh - 60px);">
+
+                    <div>
+                        <h1 class="h2">Dynamic Admin Content Area</h1>
+                        <p>This area's content changes based on the selected admin page.</p>
+                       
+                    </div>
+
+                </div>
+
+            </div> 
+        </div> 
+
+
+
     </main>
 
     <!-- Footer -->
@@ -61,6 +113,45 @@
     <!-- Add Material Modal -->
     <div class="modal fade" id="addMaterialModal" tabindex="-1" aria-labelledby="addMaterialModalLabel" aria-hidden="true"> <div class="modal-dialog modal-lg"> <div class="modal-content"> <form id="add-material-form" novalidate> <div class="modal-header"> <h5 class="modal-title" id="addMaterialModalLabel" data-translate="addMaterialModalTitle">Add Material</h5> <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button> </div> <div class="modal-body"> <div id="add-material-form-alert" class="alert d-none mb-3" role="alert"></div> <div class="mb-3"> <label for="material-title" class="form-label" data-translate="addMaterialTitleLabel">Title</label> <input type="text" class="form-control" id="material-title" required> <div class="form-text" data-translate="addMaterialTitleHint">Hint...</div> </div> <div class="row g-3 mb-3"> <div class="col-md-6"> <label for="material-type" class="form-label" data-translate="addMaterialTypeLabel">Type</label> <select class="form-select" id="material-type" required> <option value="" selected disabled data-translate="addMaterialTypeSelectDefault">-- Select --</option> <option value="video" data-translate="materialTypeVideo">Video</option> <option value="pdf" data-translate="materialTypePdf">PDF</option> <option value="link" data-translate="materialTypeLink">Link</option> <option value="text" data-translate="materialTypeText">Text</option> </select> </div> <div class="col-md-6"> <label for="material-url" class="form-label" data-translate="addMaterialUrlLabel">URL</label> <input type="url" class="form-control" id="material-url" required placeholder="https://..." data-translate-placeholder="addMaterialUrlPlaceholder"> <div class="form-text" data-translate="addMaterialUrlHint">Hint...</div> </div> </div> <div class="mb-3"> <label for="material-description" class="form-label" data-translate="addMaterialDescLabel">Description</label> <textarea class="form-control" id="material-description" rows="3" data-translate-placeholder="addMaterialDescPlaceholder"></textarea> </div> <div class="form-text text-muted small" id="material-type-note" style="display: none;" data-translate="materialTypeTextNote">Note...</div> </div> <div class="modal-footer"> <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-translate="addMaterialCancelButton">Cancel</button> <button type="submit" class="btn btn-success"><i class="bi bi-plus-circle-fill me-1"></i> <span data-translate="addMaterialAddButton">Add</span></button> </div> </form> </div> </div> </div>
 
+    <!-- ========================== -->
+    <!-- ADD PAYMENT SIMULATION MODAL -->
+    <!-- ========================== -->
+    <div class="modal fade" id="simulatePaymentModal" tabindex="-1" aria-labelledby="simulatePaymentModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="simulatePaymentModalLabel">
+                        <i class="bi bi-credit-card-2-front-fill me-2"></i><span data-translate="paymentModalTitle">Simulate Payment</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p data-translate="paymentModalText">You are about to enroll in:</p>
+                    <h4 id="paymentModalCourseTitle" class="text-primary fw-bold">Course Title Here</h4>
+                    <p class="lead">
+                        <span data-translate="paymentModalPriceLabel">Price:</span>
+                        <strong id="paymentModalCoursePrice" class="ms-2 text-success">0 MAD</strong>
+                    </p>
+                    <hr>
+                    <p class="small text-muted" data-translate="paymentModalDisclaimer">
+                        This is a demonstration. No real payment will be processed. Click confirm to simulate successful payment and enroll.
+                    </p>
+                    <input type="hidden" id="paymentModalCourseId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" data-translate="paymentModalCancel">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="confirmSimulatedPaymentButton">
+                        <i class="bi bi-check-circle-fill me-1"></i> <span data-translate="paymentModalConfirm">Confirm Payment</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- ========================== -->
+    <!-- END PAYMENT SIMULATION MODAL -->
+    <!-- ========================== -->
+
+
     <!-- Global Alert Area (for non-form feedback) -->
     <div id="global-alert-area" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100"></div>
 
@@ -68,7 +159,7 @@
     <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-    <link rel="icon" href="/favicon.ico" type="image/x-icon"> <!-- Optional: Add your favicon -->
+
     <!-- Main Application Script (Module) -->
     <script type="module" src="js/main.js"></script>
 </body>

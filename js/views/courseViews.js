@@ -22,7 +22,7 @@ export function renderCreateCoursePage() {
                         <div class="card-header bg-success-subtle text-success-emphasis border-0 pt-4 pb-3"> <h2 class="card-title text-center mb-0 fw-bold"> <i class="bi bi-plus-circle-fill me-2"></i>${t('createCourseTitle')} </h2> </div>
                         <div class="card-body p-4 p-lg-5">
                             <form id="create-course-form" novalidate>
-                                <div id="create-course-form-alert" class="alert d-none mb-4" role="alert"></div> {/* ID Corrected */}
+                                <div id="create-course-form-alert" class="alert d-none mb-4" role="alert"></div> 
                                 <div class="form-floating mb-3"> <input type="text" class="form-control" id="course-title" placeholder="${t('createCourseTitleLabel')}" required> <label for="course-title">${t('createCourseTitleLabel')}</label> </div>
                                 <div class="form-floating mb-3"> <textarea class="form-control" id="course-description" placeholder="${t('createCourseDescLabel')}" style="height: 150px" required></textarea> <label for="course-description">${t('createCourseDescLabel')}</label> <div class="form-text px-2 text-muted">${t('createCourseDescHint')}</div> </div>
                                 <div class="form-floating mb-4"> <input type="number" class="form-control" id="course-price" step="1" min="0" required placeholder="${t('createCoursePriceLabel')}"> <label for="course-price">${t('createCoursePriceLabel')}</label> <div class="form-text px-2 text-muted" data-translate-html="createCoursePriceHint">${t('createCoursePriceHint', {currencySymbol: t('currencySymbol', {}, 'MAD')})}</div> </div>
